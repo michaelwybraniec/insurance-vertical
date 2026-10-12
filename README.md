@@ -8,15 +8,14 @@ Full product/architecture brief: [`docs/base.md`](docs/base.md)
 
 ## Spec Kit
 
-- Constitution: `.specify/memory/constitution.md` (v1.0.0)
-- Active feature: [`specs/001-mutuelle-enrolment-cotisations/`](specs/001-mutuelle-enrolment-cotisations/)
+- Constitution: `.specify/memory/constitution.md` (v1.0.4)
+- Active feature: [`specs/001-mutuelle-enrolment-cotisations/`](specs/001-mutuelle-enrolment-cotisations/) (**spec complete** — plan, tasks, contracts ready)
 - Cursor skills: Spec Kit `/speckit-*` + domain `/insurance-domain`, `/insurer-acl`, `/insurance-demo`
 
-### Suggested next commands
+### Suggested next
 
-1. `/speckit-clarify` — only if open questions appear  
-2. `/speckit-plan` — technical plan from spec + `docs/base.md`  
-3. `/speckit-tasks` → `/speckit-implement`
+1. `/speckit-implement` — execute `tasks.md` T001→…
+2. Optional: `/speckit-analyze` or `/speckit-converge` after substantial code
 
 ## Repo
 

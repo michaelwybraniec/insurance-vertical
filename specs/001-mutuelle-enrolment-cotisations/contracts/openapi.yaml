@@ -1,0 +1,505 @@
+openapi: 3.0.3
+info:
+  title: Insurance Vertical POC API
+  version: 0.1.0
+  description: >
+    Command/query HTTP for PayFit-shaped mutuelle enrolment POC.
+    Core routes: docs/base.md §4 Domain API.
+    Demo helpers (audit, payroll-lines, platform-events): docs/base.md §7C.
+    Spec: specs/001-mutuelle-enrolment-cotisations/spec.md.
+servers:
+  - url: http://localhost:3000
+paths:
+  /v1/companies/{companyId}/enrolments:
+    post:
+      operationId: enrolEmployee
+      summary: EnrolEmployee
+      parameters:
+        - $ref: '#/components/parameters/companyId'
+        - $ref: '#/components/parameters/idempotencyKey'
+        - $ref: '#/components/parameters/xRole'
+        - $ref: '#/components/parameters/xCompanyId'
+        - $ref: '#/components/parameters/xCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrolEmployeeRequest'
+      responses:
+        '202':
+          description: Accepted PendingExternal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrolmentAccepted'
+        '400':
+          description: Missing/blank Idempotency-Key or invalid coverage
+        '403':
+          description: Company scope mismatch
+        '404':
+          description: Unknown employee/plan
+        '409':
+          description: Invariant conflict
+    get:
+      operationId: listEnrolments
+      summary: List cover for company
+      parameters:
+        - $ref: '#/components/parameters/companyId'
+        - $ref: '#/components/parameters/xRole'
+        - $ref: '#/components/parameters/xCompanyId'
+        - $ref: '#/components/parameters/xCorrelationId'
+        - name: includeEnded
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Enrolment list (default excludes Ended; includes Failed/Dispensed)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EnrolmentView'
+        '403':
+          description: Forbidden
+  /v1/companies/{companyId}/dispenses:
+    post:
+      operationId: dispenseEmployee
+      summary: DispenseEmployee
+      parameters:
+        - $ref: '#/components/parameters/companyId'
+        - $ref: '#/components/parameters/xRole'
+        - $ref: '#/components/parameters/xCompanyId'
+        - $ref: '#/components/parameters/xCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DispenseEmployeeRequest'
+      responses:
+        '201':
+          description: Dispensed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DispenseAccepted'
+        '403':
+          description: Forbidden
+        '404':
+          description: Unknown employee/reason
+        '409':
+          description: Pending/Active exists or insurance disabled
+  /v1/enrolments/{enrolmentId}:
+    get:
+      operationId: getEnrolment
+      parameters:
+        - $ref: '#/components/parameters/enrolmentId'
+        - $ref: '#/components/parameters/xRole'
+        - $ref: '#/components/parameters/xCompanyId'
+        - $ref: '#/components/parameters/xCorrelationId'
+      responses:
+        '200':
+          description: Enrolment detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrolmentView'
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+  /v1/enrolments/{enrolmentId}/cancellations:
+    post:
+      operationId: cancelEnrolment
+      parameters:
+        - $ref: '#/components/parameters/enrolmentId'
+        - $ref: '#/components/parameters/xRole'
+        - $ref: '#/components/parameters/xCompanyId'
+        - $ref: '#/components/parameters/xCorrelationId'
+      responses:
+        '200':
+          description: Ended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrolmentView'
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+        '409':
+          description: Illegal transition
+  /v1/me/cover:
+    get:
+      operationId: getMyCover
+      summary: Stretch employee.self
+      parameters:
+        - $ref: '#/components/parameters/xRole'
+        - $ref: '#/components/parameters/xCorrelationId'
+        - name: X-Employee-Id
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Cover view
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyCoverView'
+        '403':
+          description: Forbidden
+  /v1/webhooks/carriers/{carrier}:
+    post:
+      operationId: carrierWebhook
+      parameters:
+        - name: carrier
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [alan, axa]
+        - name: X-Carrier-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+        - $ref: '#/components/parameters/xCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CarrierWebhook'
+      responses:
+        '200':
+          description: Processed or idempotent no-op
+        '401':
+          description: Bad signature
+        '404':
+          description: Unknown enrolment/member
+  /v1/dev/platform-events:
+    post:
+      operationId: postPlatformEvent
+      description: Demo/dev ingress for EmployeeTerminated (docs/base.md §7C/§7E)
+      parameters:
+        - $ref: '#/components/parameters/xRole'
+        - $ref: '#/components/parameters/xCorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlatformEvent'
+      responses:
+        '200':
+          description: Handled or duplicate no-op
+        '403':
+          description: Role not system.worker
+  /v1/companies/{companyId}/audit:
+    get:
+      operationId: listAudit
+      description: Last N audit_log rows (docs/base.md §7C; no full audit UI)
+      parameters:
+        - $ref: '#/components/parameters/companyId'
+        - $ref: '#/components/parameters/xRole'
+        - $ref: '#/components/parameters/xCompanyId'
+        - $ref: '#/components/parameters/xCorrelationId'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Last N audit entries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditEntry'
+        '403':
+          description: Forbidden
+  /v1/companies/{companyId}/payroll-lines:
+    get:
+      operationId: listPayrollLines
+      summary: Demo helper to inspect Payroll stub
+      description: Reads payroll_lines for company (docs/base.md §7C)
+      parameters:
+        - $ref: '#/components/parameters/companyId'
+        - $ref: '#/components/parameters/xRole'
+        - $ref: '#/components/parameters/xCompanyId'
+        - $ref: '#/components/parameters/xCorrelationId'
+      responses:
+        '200':
+          description: Santé lines
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PayrollLine'
+        '403':
+          description: Forbidden
+components:
+  parameters:
+    companyId:
+      name: companyId
+      in: path
+      required: true
+      schema:
+        type: string
+    enrolmentId:
+      name: enrolmentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    idempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    xRole:
+      name: X-Role
+      in: header
+      required: true
+      schema:
+        type: string
+        enum: [company.admin, employee.self, system.worker, system.payroll_consumer]
+    xCompanyId:
+      name: X-Company-Id
+      in: header
+      required: true
+      schema:
+        type: string
+    xCorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      description: Optional; server generates if absent (FR-027 / docs/base.md §4 Observability)
+      schema:
+        type: string
+  schemas:
+    EnrolEmployeeRequest:
+      type: object
+      required: [employeeId, planId, coverage, effectiveFrom]
+      properties:
+        employeeId:
+          type: string
+        planId:
+          type: string
+        coverage:
+          type: string
+          enum: [collective]
+        effectiveFrom:
+          type: string
+          format: date
+    EnrolmentAccepted:
+      type: object
+      required: [enrolmentId, status]
+      properties:
+        enrolmentId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [PendingExternal]
+    DispenseEmployeeRequest:
+      type: object
+      required: [employeeId, reasonCode]
+      properties:
+        employeeId:
+          type: string
+        reasonCode:
+          type: string
+    DispenseAccepted:
+      type: object
+      required: [enrolmentId, status, reasonCode]
+      properties:
+        enrolmentId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [Dispensed]
+        reasonCode:
+          type: string
+    EnrolmentView:
+      type: object
+      required: [enrolmentId, companyId, employeeId, planId, status, effectiveFrom, carrier]
+      properties:
+        enrolmentId:
+          type: string
+          format: uuid
+        companyId:
+          type: string
+        employeeId:
+          type: string
+        planId:
+          type: string
+        status:
+          type: string
+          enum: [PendingExternal, Active, Failed, Dispensed, Ended]
+        effectiveFrom:
+          type: string
+          format: date
+        effectiveTo:
+          type: string
+          format: date
+          nullable: true
+        insurerMemberId:
+          type: string
+          nullable: true
+        carrier:
+          type: string
+          enum: [alan, axa]
+        attemptCount:
+          type: integer
+          description: Worker createMember attempts; fail at 3
+        pendingAgeSeconds:
+          type: integer
+          nullable: true
+          description: Present when status is PendingExternal (FR-027)
+        lastPremium:
+          type: object
+          nullable: true
+          description: Derived at read time from latest Issued instruction for this enrolment
+          properties:
+            employerShareCents:
+              type: integer
+            employeeShareCents:
+              type: integer
+            periodFrom:
+              type: string
+              format: date
+            periodTo:
+              type: string
+              format: date
+    MyCoverView:
+      type: object
+      required: [employeeId, status]
+      properties:
+        employeeId:
+          type: string
+        planName:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [PendingExternal, Active, Failed, Dispensed, Ended, none]
+        effectiveFrom:
+          type: string
+          format: date
+          nullable: true
+        effectiveTo:
+          type: string
+          format: date
+          nullable: true
+    AuditEntry:
+      type: object
+      required: [id, companyId, action, createdAt, detail]
+      description: Mirrors data-model AuditEntry (GET maps DB columns 1:1)
+      properties:
+        id:
+          type: string
+        companyId:
+          type: string
+        enrolmentId:
+          type: string
+          format: uuid
+          nullable: true
+        action:
+          type: string
+          description: enrol|activate|dispense|cancel|terminate|fail
+        correlationId:
+          type: string
+        detail:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+    PayrollLine:
+      type: object
+      required: [companyId, employeeId, enrolmentId, kind, amountCents, currency, periodFrom, periodTo, active, sourceEventId]
+      properties:
+        companyId:
+          type: string
+        employeeId:
+          type: string
+        enrolmentId:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [patronale, salariale]
+        amountCents:
+          type: integer
+        currency:
+          type: string
+          enum: [EUR]
+        periodFrom:
+          type: string
+          format: date
+        periodTo:
+          type: string
+          format: date
+        active:
+          type: boolean
+        sourceEventId:
+          type: string
+    CarrierWebhook:
+      type: object
+      required: [insurerEventId, result]
+      properties:
+        insurerEventId:
+          type: string
+        enrolmentId:
+          type: string
+          format: uuid
+        insurerMemberId:
+          type: string
+        result:
+          type: string
+          enum: [confirmed, rejected]
+      anyOf:
+        - required: [enrolmentId]
+        - required: [insurerMemberId]
+    PlatformEvent:
+      type: object
+      required: [type, eventId, occurredAt, companyId, employeeId]
+      properties:
+        type:
+          type: string
+          enum: [EmployeeTerminated]
+        eventId:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+        companyId:
+          type: string
+        employeeId:
+          type: string

@@ -9,13 +9,16 @@ description: >-
 
 # Insurer ACL (Alan / AXA)
 
-Carriers are **adapters**, not domains. Company A can use `alan`, Company B `axa` — same `EnrolEmployee` command, same domain events out.
+Carriers are **adapters**, not domains. Company A = `alan`, Company B = `axa` — same `EnrolEmployee`, same domain events out. Source: `docs/base.md` §4 Carriers + constitution II.
 
 ## Port
 
 ```ts
 interface InsurerGateway {
-  createMember(input: CreateMemberInput): Promise<{ memberId: string; rateParams?: RateParams }>
+  createMember(input: CreateMemberInput): Promise<{
+    memberId: string
+    rateParams?: { monthlyPremiumCents: number; employerSharePct: number }
+  }>
   cancelMember(input: CancelMemberInput): Promise<void>
 }
 ```
@@ -23,6 +26,7 @@ interface InsurerGateway {
 - Domain speaks PayFit language (`companyId`, `employeeId`, `enrolmentId`, plan).
 - Gateway maps to carrier-shaped requests **inside** the adapter only.
 - Never leak Alan/AXA types into Enrolment aggregate or application commands.
+- `company.carrier` is **seed-only** in POC (no admin pick-carrier API while Pending/Active).
 
 ## Adapters (POC)
 
@@ -31,22 +35,30 @@ interface InsurerGateway {
 | **AlanStub** | API-style affiliate + optional webhook confirm | Log `demo/last-alan-call.json` |
 | **AxaStub** | OC-style affiliate; may return setup-sheet-like rates | Log `demo/last-axa-call.json`; read `fixtures/axa-setup-sheet.json` |
 
+**AXA rates:** when setup-sheet fixture present, `rateParams` supply premium/`employerSharePct` inputs to the share formula; else plan seed. Still emit `employerShareCents`/`employeeShareCents` (half-up).
+
 Routing: `company.carrier` → factory picks stub. Worker calls gateway after PendingExternal.
 
 ## Worker flow
 
 1. Load Pending enrolment / outbox job  
 2. `gateway = resolve(company.carrier)`  
-3. `createMember(...)` → `memberId`  
+3. `createMember(...)` → `memberId` (+ optional `rateParams`)  
 4. TX: Enrolment → Active + outbox `EmployeeEnrolledInInsurance` + `PremiumInstructionIssued`  
-5. On terminate/cancel: `cancelMember` + Ended + `PremiumInstructionStop`  
-6. Terminate while Pending: cancel local + compensate stub member  
+5. On **cancel**: `cancelMember` + Ended + outbox `EnrolmentCancelled` + `PremiumInstructionStop` if Issued existed  
+6. On **terminate**: same end-of-cover outs (`EnrolmentCancelled` + Stop if Issued); Pending → compensate stub member  
+7. **Terminate wins** vs concurrent activate — never leave Active for a terminated employee  
 
 ## Webhooks / inbox
 
-- Prefer sync stub activate for week-1, **or** `POST /v1/webhooks/carriers/:carrier` with fixture JSON.
-- Dedupe on `insurerEventId` (processed_events / inbox) — duplicate → no-op.
-- Timeout: stay Pending + retry; never silent Active.
+- Sync stub activate OK for §7E; HTTP webhook **required in test pack**.
+- Header: `X-Carrier-Signature: stub-secret` — missing/wrong → **401**.
+- Payload must include `enrolmentId` and/or `insurerMemberId` — unknown → **404**.
+- Dedupe on `insurerEventId` (processed_events) — duplicate → no-op.
+- `result=confirmed` → Pending→Active (already Active same member → 200 no-op).
+- `result=rejected` → Pending→**Failed** (not Pending → 200 no-op).
+- Timeout/transport: stay Pending + retry; after **3** attempts → **Failed** + dead-letter counter + audit; never silent Active.
+- `attemptCount` increments only on createMember timeout/transport (not webhook reject).
 
 ## What not to build
 
@@ -62,3 +74,5 @@ Routing: `company.carrier` → factory picks stub. Worker calls gateway after Pe
 - [ ] Company A vs B demo shows **different** ACL logs, **same** event shape  
 - [ ] Cancel/compensate path exists for Pending + Active  
 - [ ] Idempotent webhook / duplicate delivery handled  
+- [ ] Signature + reject→Failed + Failed@3 covered by tests  
+- [ ] AXA sheet rates (when present) drive cents formula inputs  

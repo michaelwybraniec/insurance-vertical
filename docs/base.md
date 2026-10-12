@@ -4,7 +4,7 @@
 **Company fit:** PayFit — payroll + HRIS for SMBs (FR / ES / UK); DDD + event-driven platform; JetLang coexistence  
 **Mission fit:** Senior freelance SE — Insurance / benefits greenfield module  
 **POC posture:** Thin **DDD vertical slice** — Insurance owns enrolment + cotisation _instructions_; Payroll stub consumes; **carriers = ACLs** (`AlanStub` + `AxaStub`)  
-**Related:** [`system-design-insurance-module.md`](./system-design-insurance-module.md) · [`README.md`](../README.md)
+**Related:** [`README.md`](../README.md) · Spec Kit feature [`specs/001-mutuelle-enrolment-cotisations/spec.md`](../specs/001-mutuelle-enrolment-cotisations/spec.md) · _(optional later)_ `system-design-insurance-module.md`
 
 ---
 
@@ -96,7 +96,7 @@ Insurer ACL (stub → real partner later)
         ↓
 Status Pending → Active (or Dispensed / Failed / Ended)
         ↓
-PremiumInstructionIssued { employerShare, employeeShare, period }
+PremiumInstructionIssued { employerShareCents, employeeShareCents, period }
         ↓
 Payroll stub → Santé lines on bulletin
         ↓
@@ -140,7 +140,7 @@ Company A can be configured with `carrier = alan`; Company B with `carrier = axa
 
 | Layer                | Responsibility                                             | POC implementation                                 |
 | -------------------- | ---------------------------------------------------------- | -------------------------------------------------- |
-| **Experience**       | Admin enrol / dispense / list cover · pick company carrier | Minimal React or HTTP collection (Bruno/curl OK)   |
+| **Experience**       | Admin enrol / dispense / list cover · **see** company carrier (seed-configured) | Minimal React or HTTP collection (Bruno/curl OK)   |
 | **Domain**           | Enrolment FSM, invariants, Money shares                    | Pure TypeScript aggregates — **no** Alan/AXA types |
 | **Application**      | Commands + platform event handlers                         | Nest-like or plain handlers                        |
 | **Outbox / bus**     | Reliable publish                                           | SQL outbox + in-process queue or SQS local         |
@@ -156,7 +156,8 @@ Company A can be configured with `carrier = alan`; Company B with `carrier = axa
 3. API returns **PendingExternal**; outbox scheduled.
 4. Worker calls **company’s carrier ACL** (`AlanStub` or `AxaStub`) → member created → enrolment **Active**.
 5. Emit `EmployeeEnrolledInInsurance` + `PremiumInstructionIssued`  
-   `{ employerShare: 60%, employeeShare: 40%, period: 2026-04 }` (example ≥50% employer).
+   `{ employerShareCents, employeeShareCents, currency: "EUR", periodFrom, periodTo }`  
+   (example: plan 60% employer → cents split ≥50% employer; UI may label period `2026-04`).
 6. Payroll stub stores two Santé lines for that employee/period (**same** whether Alan or AXA).
 7. Admin UI / GET cover shows Active for Company A only (tenant isolation).
 8. Repeat enrol on Company B (AXA) — show different ACL logs, **same domain events**.
@@ -167,7 +168,7 @@ Company A can be configured with `carrier = alan`; Company B with `carrier = axa
 | Case                      | Expected behaviour                                                    |
 | ------------------------- | --------------------------------------------------------------------- |
 | Double-click enrol        | Same `Idempotency-Key` → same enrolment, no second insurer member     |
-| Insurer timeout           | Stay Pending; retry; UI still honest                                  |
+| Insurer timeout           | Stay Pending; retry; UI still honest; after **3** attempts → **Failed** + dead-letter counter (POC) |
 | Duplicate webhook         | `insurerEventId` inbox → no-op                                        |
 | Terminate while Pending   | Cancel local + compensate stub member                                 |
 | Dispense instead of enrol | Status Dispensed; **no** premium instruction (or zero) + audit reason |
@@ -179,13 +180,15 @@ Company A can be configured with `carrier = alan`; Company B with `carrier = axa
 
 | ID                  | Story                                                                                                                                                                                        | Acceptance (demo)                                                                                                                                     |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **US1**             | **As a** company admin, **I want to** enrol an employee on our collective mutuelle plan, **so that** affiliation and cotisations stay in sync with paie without double entry.                | Enrol → Pending → Active; premium instruction with employerShare ≥ 50% + employeeShare; Payroll stub shows two Santé lines; scoped to my `companyId`. |
+| **US1**             | **As a** company admin, **I want to** enrol an employee on our collective mutuelle plan, **so that** affiliation and cotisations stay in sync with paie without double entry.                | Enrol → Pending → Active; premium instruction with employerShareCents ≥ 50% of base + employeeShareCents; Payroll stub shows two Santé lines; scoped to my `companyId`. |
 | **US2**             | **As a** company admin, **I want to** record a **dispense** (legal exemption) instead of affiliation, **so that** we stay compliant when the employee must not join the collective contract. | Dispense + reason code → status Dispensed; **no** Active cover; **no** (or zero) premium instruction; audit kept.                                     |
 | **US3**             | **As a** company admin, **I want** leavers to drop off cover automatically, **so that** we don’t keep paying / withholding after `EmployeeTerminated`.                                       | Terminated event → Ended; carrier cancel/compensate; `PremiumInstruction` Stop; stub lines removed.                                                   |
 | **US4**             | **As** PayFit (platform), **I want** Company A on **Alan** and Company B on **AXA** without two products, **so that** carriers are adapters behind one Insurance vertical.                   | Same `EnrolEmployee` command; `InsurerGateway` routes to AlanStub vs AxaStub; **same** domain events out.                                             |
 | **US5**             | **As a** company admin, **I want** double-submit / retries to be safe, **so that** network blips don’t create two members or two cotisations.                                                | Same Idempotency-Key → same enrolment; duplicate webhook → no-op.                                                                                     |
 | **US6**             | **As a** company admin, **I want to** see enrolment status (Pending / Active / Failed / Dispensed), **so that** I’m not lied to while the carrier is still processing.                       | API/UI returns honest FSM status after enrol.                                                                                                         |
 | **US7** _(stretch)_ | **As an** employee, **I want to** see “my cover” read-only, **so that** I know I’m affiliated.                                                                                               | `GET cover` for self; no commands. Optional in POC.                                                                                                   |
+
+**Also in Domain API (not a numbered US above):** admin `CancelEnrolment` (`POST /v1/enrolments/:id/cancellations`) → Ended + carrier compensate + Stop if needed. Spec Kit may schedule it as its own delivery story; **brief US ids US1–US7 stay canonical** for product talk-track.
 
 **Out of user-story scope for POC:** file a claim · pick among marketplace insurers · edit DSN · change URSSAF rules.
 
@@ -195,7 +198,7 @@ Company A can be configured with `carrier = alan`; Company B with `carrier = axa
 
 | Store                        | Writer           | Data                                                        |
 | ---------------------------- | ---------------- | ----------------------------------------------------------- |
-| Insurance write DB           | API / worker     | `Enrolment`, catalog/plan ref, `outbox`, `processed_events` |
+| Insurance write DB           | API / worker     | `Enrolment`, catalog/plan ref, `outbox`, `processed_events`, `audit_log` |
 | Insurance read model _(opt)_ | Projector        | Cover list for admin UI                                     |
 | Carrier (stub)               | Worker via ACL   | External `memberId` (fake)                                  |
 | Bus                          | Outbox publisher | Domain events                                               |
@@ -218,7 +221,7 @@ Company A can be configured with `carrier = alan`; Company B with `carrier = axa
    │       createMember(employee…) → memberId
    │  TX ──► enrolment (Active, insurerMemberId) + outbox:
    │           EmployeeEnrolledInInsurance
-   │           PremiumInstructionIssued { employerShare, employeeShare, period, money… }
+   │           PremiumInstructionIssued { employerShareCents, employeeShareCents, period, currency… }
    ▼
 [Publisher]  outbox → bus
    │
@@ -242,9 +245,9 @@ EmployeeEnrolledInInsurance {
 PremiumInstructionIssued {
   eventId, occurredAt, companyId, employeeId, enrolmentId,
   periodFrom, periodTo,
-  employerShare,   // Money
-  employeeShare,   // Money
-  currency
+  employerShareCents,   // integer EUR cents (Money); half-up from pct
+  employeeShareCents,   // integer EUR cents (Money); remainder so sum = premium
+  currency              // "EUR"
 }
 
 EnrolmentCancelled / PremiumInstructionStop { eventId, occurredAt, companyId, employeeId, enrolmentId, effectiveTo }
@@ -299,7 +302,7 @@ We do **define roles** — stub Identity in POC, real PayFit Identity later.
 | **payfit.support** _(later)_ | Cross-company read | Ops/debug                                                 | Not in POC                                              |
 
 **Enforcement (POC):**  
-`Authorization` stub + headers `X-Role` + `X-Company-Id` (and `X-Employee-Id` for self).  
+Stub identity via headers `X-Role` + `X-Company-Id` (and `X-Employee-Id` for self). Optional `Authorization` bearer ignored in POC.  
 Server checks: admin commands require `company.admin` **and** body `companyId ===` header company. Wrong company → **403**.
 
 **Not building in POC:** full SSO, PayFit permission matrix UI, insurer portal logins.
@@ -342,7 +345,7 @@ It is **not** the insurer’s API and **not** Payroll’s API.
 | Rule (simplified)                         | How POC reflects it                                                    |
 | ----------------------------------------- | ---------------------------------------------------------------------- |
 | Collective mutuelle obligatory (ANI 2016) | Company must have Insurance enabled + a plan                           |
-| Employer ≥ 50% of base cotisation         | Instruction always carries **employerShare / employeeShare**           |
+| Employer ≥ 50% of base cotisation         | Instruction always carries **employerShareCents / employeeShareCents** |
 | Cotisation on fiche de paie               | Payroll stub materialises Santé lines from events                      |
 | Affiliation often mandatory + dispenses   | Enrol **or** Dispense command with reason code                         |
 | Mid-period changes                        | Effective dating + stated proration assumption                         |
@@ -519,7 +522,7 @@ Prove the **domain + events + multi-company + two carriers**. Everything else ca
 | **AXA fiche de paramétrage** | Show OC “rates file” idea                 | Hand-write `fixtures/axa-setup-sheet.json`; AxaStub reads rates from it; open file in demo                                              |
 | **Real webhook infra**       | Don’t run public endpoints                | Either stub activates sync, **or** add `POST /v1/webhooks/carriers/:carrier` and send `fixtures/axa-webhook-active.json` once with curl |
 | **SQS / K8s / Terraform**    | Infra story only                          | In-process queue after outbox; README note “PayFit = SQS/EKS/TF”; no AWS account for POC                                                |
-| **Payroll product**          | Show bulletin impact                      | On Premium\* event, append to `data/payroll-lines.json` or SQLite table; `cat` / GET to display                                         |
+| **Payroll product**          | Show bulletin impact                      | On Premium\* event, write `payroll_lines` in Postgres (POC choice); expose `GET /v1/companies/:id/payroll-lines` for demo               |
 | **DSN / URSSAF**             | Out of scope                              | One slide/sentence in README — not code                                                                                                 |
 | **Identity / SSO**           | AuthZ without Cognito                     | Header middleware only; document example curl with headers                                                                              |
 | **Notifications**            | Nice-to-have                              | `console.log` or skip                                                                                                                   |
@@ -528,8 +531,8 @@ Prove the **domain + events + multi-company + two carriers**. Everything else ca
 | **Proration engine**         | Mid-month money                           | Hardcode `proration: full_month` in plan seed; document assumption                                                                      |
 | **EmployeeHired auto-enrol** | Platform event in                         | Skip auto-enrol; implement only **Terminated** via `POST /v1/dev/platform-events` + `fixtures/employee-terminated.json`                 |
 | **Change coverage**          | Mid-life plan change                      | Skip endpoint in v1                                                                                                                     |
-| **OpenAPI portal**           | Pretty docs                               | Write `docs/routes.md` (table we already have); optional openapi.yaml later                                                             |
-| **Audit UI**                 | Who changed what                          | Append JSON lines to `data/audit.log`; GET last N as JSON                                                                               |
+| **OpenAPI portal**           | Pretty docs                               | Write `docs/routes.md` + `contracts/openapi.yaml` (both in Spec Kit deliverables)                                                        |
+| **Audit UI**                 | Who changed what                          | Append rows to Postgres `audit_log` (JSON payload); GET last N as JSON (no full audit UI)                                               |
 | **Docker Compose**           | Packaging                                 | After API works locally; then add `docker-compose.yml` (api, worker, db)                                                                |
 
 #### D) Concrete next-steps checklist (this week)
@@ -540,7 +543,7 @@ Prove the **domain + events + multi-company + two carriers**. Everything else ca
 4. Implement `POST enrol` + `GET` + header authZ.
 5. Add outbox table + publisher (console or in-process bus).
 6. Implement worker + AlanStub + AxaStub (log JSON files).
-7. Payroll stub writer → `payroll-lines.json`.
+7. Payroll stub writer → `payroll_lines` table + GET demo route.
 8. Idempotency + cross-company 403 tests.
 9. `fixtures/employee-terminated.json` + handler.
 10. `demo/README.md` with curl script for the 9-step demo.
@@ -573,7 +576,7 @@ Prove the **domain + events + multi-company + two carriers**. Everything else ca
 ┌──────────┐  authZ                      └──────────┬──────────┘
 │ Identity │ ──────────────────────────►            │
 └──────────┘                     Enrolled|Cancelled|Premium*
-                                 (employerShare + employeeShare)
+                                 (employerShareCents + employeeShareCents)
                                             │
                     ┌───────────────────────┼────────────────┐
                     ▼                       ▼                ▼
@@ -598,7 +601,7 @@ Prove the **domain + events + multi-company + two carriers**. Everything else ca
 DispenseEmployee ──► Dispensed (no Active cover; audit reason)
 ```
 
-\*timeout stays Pending with retry, not silent Active.
+\*timeout stays Pending with retry (not silent Active); after 3 failed attempts → Failed + dead-letter counter.
 
 ### Sequence (enrol)
 
@@ -619,10 +622,12 @@ Publisher → Bus → Payroll stub: write Santé lines (patronale + salariale)
 | ----------------- | ------------------------------------------------ |
 | Language          | TypeScript                                       |
 | API / worker      | Node (Nest or lightweight)                       |
-| DB                | Postgres (aggregate + outbox + processed_events) |
+| DB                | Postgres (aggregate + outbox + processed_events + `audit_log` + `payroll_lines` + `dead_letter_counters`) |
 | Bus               | In-process queue **or** LocalStack SQS           |
 | UI                | Minimal React **or** HTTP-only for first demo    |
 | Deploy (optional) | Docker Compose: `api`, `worker`, `db`            |
+
+**Performance (POC):** demo-scale only (2–3 companies, handful of employees). **No p95/SLA target** in the brief — correctness and the §7E/§9 script matter, not load numbers.
 
 Keep AWS/K8s/Terraform as “how we’d run it at PayFit” in the README — not required to prove the domain.
 
@@ -695,7 +700,7 @@ VERTICAL   Insurance (UI + Domain API + DB + worker)
 API        /v1 enrolments · dispenses · cover · webhooks  (see §4 Domain API)
 ARCH       Ultimate diagram §7 — actors → vertical → carriers + Payroll + platform
 IN         EmployeeHired | Terminated | Updated
-OUT        Enrolled | Cancelled | PremiumInstruction*(employerShare, employeeShare, period)
+OUT        Enrolled | Cancelled | PremiumInstruction*(employerShareCents, employeeShareCents, period)
 CARRIERS   InsurerGateway → AlanStub | AxaStub (same domain, different ACL)
 CORE       Enrolment FSM Pending→Active→Ended (+ Dispensed)
 RELIABLE   outbox · inbox · Idempotency-Key · reconcile later

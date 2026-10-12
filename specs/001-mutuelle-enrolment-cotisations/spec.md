@@ -4,263 +4,426 @@
 
 **Created**: 2026-10-12
 
-**Status**: Draft
+**Updated**: 2026-10-12
 
-**Input**: User description: "Full POC from docs/base.md (§1–14) — multi-company payroll-native Insurance vertical: enrol/dispense employees on collective mutuelle, swappable carrier adapters (Alan-style + AXA-style), structured employer/employee cotisation instructions consumed by Payroll stub, terminate lifecycle, outbox/idempotency, FR ANI shape. Do not skip content from the brief."
+**Status**: Spec complete (ready to implement)
 
-**Source brief**: `docs/base.md` (entire document; traceability in Assumptions)
+**Input**: Full POC brief — multi-company payroll-native Insurance vertical (enrol/dispense, Alan+AXA adapters, premium instructions → Payroll stub, terminate, outbox/idempotency, FR ANI shape).
+
+## Source Authority
+
+| Role | Document |
+| --- | --- |
+| Product & architecture brief (canonical detail) | [`docs/base.md`](../../docs/base.md) §1–14 |
+| Governance | [`.specify/memory/constitution.md`](../../.specify/memory/constitution.md) v1.0.4 |
+| Domain agent skills | `/insurance-domain`, `/insurer-acl`, `/insurance-demo` |
+
+**Optimization rule:** This spec states *testable* outcomes and priorities. Narrative context, diagrams, route tables, event payload shapes, seed file lists, stack choices, week plan, and deliverable templates live in `docs/base.md` — cite the section; do not re-copy unless the requirement must stand alone for acceptance.
+
+### Brief → Spec map
+
+| `docs/base.md` | Use here |
+| --- | --- |
+| §1–3 Context / problem / pitch | Background only (not re-specified) |
+| §4 Solution, US1–7, edges, roles, API, events, data flow | User stories, FRs, entities (this file) |
+| §5 Regulatory / ANI | FR cotisation + SC employer ≥50% |
+| §6 Scale | POC bounds in Assumptions; pilot+ out of scope |
+| §7 Architecture, build/seed/mock matrix, FSM, sequences | Planning inputs (cite); demo gate cites §7E |
+| §8 Stack | `/speckit-plan` only |
+| §9 Demo script | Success criteria + pointer to §9 / §7E |
+| §10 Deliverables | Planning/impl checklist pointer |
+| §11 Week plan | `/speckit-tasks` input |
+| §12 Success criteria | SC-* below |
+| §13 Non-goals | FR MUST NOT + Assumptions |
+| §14 One-pager | Cheat sheet for reviews (cite) |
+
+## Clarifications
+
+### Session 2026-10-12
+
+- Q: How many in-flight or active enrolments may one employee have at the same company at once? → A: At most one PendingExternal or Active per employee+company; Ended/Dispensed allow a new enrol (user chose A; brief only partial via §4 409 “already active / terminated”)
+- Q: How should the premium instruction period be derived for an enrolment? → A: Whole calendar month containing `effectiveFrom` (e.g. 2026-04-01→2026-04-30) — **partial brief**: §4 example `period: 2026-04`, UI period column, §7C `proration: full_month`
+- Q: Must the POC demo gate require an HTTP carrier webhook, or is sync stub activation enough? → A: Sync stub activation sufficient for §7E demo gate; webhook endpoint optional but required in test pack for duplicate `insurerEventId` — **partial brief**: §7C “Either stub activates sync, or add webhook”
+- Q: Which currency and money unit does the POC use for shares? → A: EUR only; integer **cents** canonical (supersedes any earlier “decimal euros” wording; no multi-currency) — **brief §4 payloads** + clarify Money unit
+- Q: May Failed enrolments be replaced by a new EnrolEmployee for the same employee+company? → A: Yes — Failed is not Pending/Active, so re-enrol allowed (new id) — **not in brief**; Spec Kit default consistent with uniqueness rule A
+- Q: What values may `coverage` take on EnrolEmployee? → A: POC accepts only `collective` (single Santé Base plan) — **partial brief**: field present in §4 command, no enum defined
+- Q: May DispenseEmployee run while PendingExternal or Active exists for that employee+company? → A: No — 409; dispense only when no in-flight/active enrolment (enrol **or** dispense) — **partial brief**: §5 “Enrol or Dispense”
+- Q: What is Idempotency-Key scope and lifetime? → A: Scope `(companyId, HTTP route, Idempotency-Key)`; no TTL in POC (store until manually cleared / forever for demo); required on enrol only — **partial brief**: enrol header only §4; TTL absent → Spec Kit POC default
+- Q: How are employerShare/employeeShare Money amounts computed from the plan? → A: `employerShareCents = round(monthlyPremiumCents * employerSharePct/100)` (half-up), `employeeShareCents = monthlyPremiumCents - employerShareCents`, EUR — **partial brief**: §4 example + §7B plan seed fields; field names locked to *Cents
+- Q: What if company Insurance is not enabled? → A: EnrolEmployee and DispenseEmployee MUST 409 — **partial brief**: happy path “Insurance enabled” §4
+- Q: How far do timeout retries and DLQ go in the POC? → A: Worker retries PendingExternal up to 3 attempts then **Failed** + dead-letter log/counter (no broker DLQ; do not stay Pending after exhaustion) — **brief §4 edge + constitution V amended** to match
+- Q: How is webhook “carrier sig” enforced? → A: Stub shared-secret header (e.g. `X-Carrier-Signature: stub-secret`) validated in tests; reject 401 if missing/wrong when webhook endpoint is hit — **partial brief**: §4 “carrier sig”
+- Q: What terminal status does admin CancelEnrolment produce? → A: `Ended` (same as terminate/cancel FSM); emit cancel + Stop events as applicable — **full/partial brief**: §7 FSM Active→Ended via terminate/cancel; event name `EnrolmentCancelled` in §4 payloads
+- Q: How does the POC ingest EmployeeTerminated for the demo? → A: MUST expose `POST /v1/dev/platform-events` accepting the terminated fixture — **partial/full brief**: §7C / §7E step 9
+- Q: What audit surface is in POC scope? → A: Append rows to Postgres `audit_log` (JSON payload) + GET last N as JSON (no full audit UI) — **full brief**: §7C Audit UI row (amended) + §4 stores
+- Q: When AXA setup-sheet rates exist, what drives premium Money? → A: Prefer setup-sheet rates when present; else plan seed; still emit EUR `employerShareCents`/`employeeShareCents` via share formula — **partial brief**: §4 ACL + §7C fiche fixture
+- Q: effectiveFrom / unknown employee or plan / list history? → A: Unknown employee/plan (or employee not in company) → 404; `effectiveFrom` accepted as provided for POC (no past/future window); list cover defaults to excluding Ended unless `?includeEnded=true` — was deferred, now locked as POC defaults
+- Q: Which timezone defines the premium calendar month? → A: `Europe/Paris` — **partial brief**: FR-only POC §5/§13; TZ absent → Spec Kit default for FR
+- Q: What if Idempotency-Key is missing or blank on enrol? → A: **400** — **partial brief**: key required on enrol §4
+- Q: How does Payroll stub handle duplicate Issued/Stop deliveries? → A: Idempotent upsert by instruction `eventId` (fallback enrolmentId+period+kind); duplicate Stop is no-op — **partial brief**: at-least-once outbox/bus §4
+- Q: How does platform-events ingress handle duplicate Terminated? → A: Idempotent by platform `eventId` (required on fixture); duplicate → no-op — **partial brief**: reliability / processed_events pattern §4
+- Q: Can company.carrier change while an enrolment is PendingExternal or Active? → A: No for POC — carrier is seed-configured and immutable while in-flight/active; no admin “pick carrier” API in v1 — **partial brief**: experience row vs company.carrier seed; POC chooses seed-only
+- Q: What minor unit is Money? → A: Integer **EUR cents** in events and payroll lines; plan seed may use euros but conversion to cents is canonical — **partial brief**: Money type §4; exact unit absent → Spec Kit default
+- Q: Who may call platform-events and audit GET? → A: `POST /v1/dev/platform-events` requires `X-Role: system.worker` (or equivalent system role); audit GET requires `company.admin` scoped to `X-Company-Id` (filter that company) — **not in brief**; Spec Kit security default for stub identity
+- Q: How does a carrier webhook locate the enrolment? → A: Payload MUST include `insurerMemberId` and/or `enrolmentId`; unknown → 404; then confirm/reject command — **partial brief**: webhook maps to confirm/reject §4
+- Q: Re-enrol in same calendar month after Ended? → A: Allowed; Payroll upsertes lines for new enrolmentId+period (prior Ended history retained) — consistent with uniqueness + payroll idempotency rules
+- Q: Canonical Money field names on PremiumInstructionIssued? → A: `employerShareCents` / `employeeShareCents` (integer EUR cents); brief §4 payloads amended to match contracts — **was partial naming fork; closed**
+- Q: Concurrent terminate vs activate? → A: **Terminate wins** — must not leave Active for a terminated employee; compensate member if create raced; idempotent Stop — **not in brief**; Spec Kit reliability default
+- Q: Cancel on Dispensed / Failed / already Ended? → A: **409** illegal transition — **partial brief**: FSM illegal transitions rejected
+- Q: Webhook when already Active (confirmed) or not Pending (rejected)? → A: Already Active + same member → **200 idempotent no-op**; reject when not Pending → **200 no-op** (at-least-once safe) — **Spec Kit default**
+- Q: What increments worker attemptCount? → A: Timeout/transport failure on `createMember` only; webhook `rejected` → Failed without consuming a retry attempt — **Spec Kit default**
+- Q: Round mode for odd cents? → A: Half-up on `employerShareCents`; employee gets remainder — **brief §4 payloads amended** (was Spec Kit default)
+- Q: Default list includes Failed/Dispensed? → A: **Yes**; exclude Ended only unless `includeEnded=true` — **partial brief**: US6 shows Failed/Dispensed; FR-028a
+- Q: Correlation id transport? → A: Header `X-Correlation-Id` (generate if absent); propagate to worker + stub logs — **partial brief**: observability correlationId §4
+- Q: Idempotent enrol replay HTTP status? → A: **202** + same body as first accept — **partial brief**: 202 on enrol §4
+- Q: Seed `employerSharePct` below 50? → A: Seed/boot MUST fail validation — **partial brief**: ≥50 invariant §5/§7B
+- Q: Is there a POC latency/p95 SLA? → A: **No** — demo-scale only; §7E/§9 correctness over load numbers — **brief §8 amended** (was inventing p95 in plan)
+
+**Clarify decision rule (this project):** (1) If fully in `docs/base.md`, use that. (2) If partially in brief, use the recommendation implied by that partial text. (3) If absent, use Spec Kit recommended default. Record source on each Q→A line.
 
 ## User Scenarios & Testing *(mandatory)*
 
-### User Story 1 - Enrol employee on collective mutuelle (Priority: P1)
+**Canonical story IDs** = `docs/base.md` §4 **US1–US7**. Spec Kit sections below are **delivery order** (Priority); each title ends with the brief US id. Cancel is Domain API–scoped (not a brief US) — see brief footnote.
+
+| Brief US (`docs/base.md`) | Delivery section below | Priority |
+| ------------------------- | ---------------------- | -------- |
+| **US1** Enrol | User Story 1 | P1 |
+| **US4** Dual carriers | User Story 2 | P1 |
+| **US5** Idempotency | User Story 3 | P1 |
+| **US3** Terminate | User Story 4 | P1 |
+| *(API)* CancelEnrolment | User Story 5 | P2 |
+| **US2** Dispense | User Story 6 | P2 |
+| **US6** Status visibility | User Story 7 | P2 |
+| **US7** My cover (stretch) | User Story 8 | P3 |
+
+### User Story 1 - Enrol employee on collective mutuelle (Priority: P1) — brief US1
 
 As a company admin, I enrol an employee on our collective health plan so affiliation and cotisations stay in sync with payroll without double entry.
 
-**Why this priority**: Core value path — Pending → Active → premium shares → bulletin lines for one company.
+**Why this priority**: Core value path — Pending → Active → premium shares → bulletin lines.
 
-**Independent Test**: With Company A seeded (Alan-style carrier), enrol one employee; observe Pending then Active; verify employer share ≥ 50% and employee share; verify Payroll stub shows two Santé lines; verify only Company A data is visible.
-
-**Acceptance Scenarios**:
-
-1. **Given** Company A has Insurance enabled and plan “Santé Base”, **When** an admin for Company A enrols employee Ada with an idempotency key, **Then** the system immediately reports status PendingExternal and returns an enrolment identifier.
-2. **Given** an enrolment is PendingExternal, **When** the carrier affiliation succeeds, **Then** status becomes Active and an insurer member reference is recorded.
-3. **Given** enrolment becomes Active, **When** cotisation instructions are issued for the period, **Then** instructions include employerShare and employeeShare with employer share ≥ 50% of base, plus period bounds.
-4. **Given** PremiumInstructionIssued was published, **When** Payroll stub consumes it, **Then** two Santé lines exist for that employee/period (employer part + employee part).
-5. **Given** Company A admin is authenticated for Company A only, **When** they list cover, **Then** they see Ada’s Active enrolment and cannot see Company B employees.
-
----
-
-### User Story 2 - Dual carrier adapters, one product (Priority: P1)
-
-As PayFit (platform), I configure Company A on Alan-style carrier and Company B on AXA-style carrier without two products, so carriers remain adapters behind one Insurance vertical.
-
-**Why this priority**: Proves domain stability and partner-readiness; required for the mission demo.
-
-**Independent Test**: Enrol on Company A then Company B with the same enrol intent; carrier interaction logs differ; domain outcomes (enrolled + premium instruction shape) match.
+**Independent Test**: Company A (Alan-style); enrol one employee; Pending then Active; employer share ≥ 50% + employee share; Payroll stub two Santé lines; Company A isolation. Detail: `docs/base.md` §4 happy path steps 1–7.
 
 **Acceptance Scenarios**:
 
-1. **Given** Company A carrier = Alan-style and Company B carrier = AXA-style, **When** admins enrol an employee on each using the same enrol command, **Then** each company uses its configured carrier path.
-2. **Given** both enrolments complete, **When** domain outcomes are compared, **Then** event/outcome shapes for enrolment and premium instructions are the same; only carrier interaction details differ.
-3. **Given** AXA-style path may supply setup-sheet-like rate params, **When** Company B enrolment activates, **Then** cotisation amounts still appear as employerShare/employeeShare instructions consumable by Payroll stub.
+1. **Given** Company A has Insurance enabled and plan “Santé Base”, **When** admin enrols Ada with an idempotency key, **Then** status is PendingExternal and an enrolment id is returned (async accept).
+2. **Given** PendingExternal, **When** carrier affiliation succeeds, **Then** status is Active and an insurer member reference is recorded.
+3. **Given** Active, **When** cotisation instructions are issued, **Then** they include employerShareCents, employeeShareCents (employer ≥ 50% of base), period bounds, and currency EUR.
+4. **Given** PremiumInstructionIssued, **When** Payroll stub consumes it, **Then** two Santé lines exist for that employee/period (patronale + salariale).
+5. **Given** Company A admin, **When** they list cover, **Then** they see Ada Active and never Company B employees.
 
 ---
 
-### User Story 3 - Safe retries and double-submit (Priority: P1)
+### User Story 2 - Dual carrier adapters, one product (Priority: P1) — brief US4
 
-As a company admin, I need double-submit and retries to be safe so network blips do not create two members or two cotisations.
+As PayFit (platform), Company A uses Alan-style and Company B uses AXA-style without two products — carriers are adapters behind one Insurance vertical.
 
-**Why this priority**: Reliability is a success criterion and demo gate.
+**Why this priority**: Partner-ready architecture; required demo contrast. See `docs/base.md` §4 Carriers / ACL diagram.
 
-**Independent Test**: Replay enrol with the same Idempotency-Key; replay a duplicate carrier confirmation; assert single enrolment and single member.
+**Independent Test**: Same enrol intent on A then B; carrier evidence differs; domain enrolment + premium outcome shapes match.
 
 **Acceptance Scenarios**:
 
-1. **Given** an enrol already succeeded with Idempotency-Key K, **When** the same admin resubmits enrol with K, **Then** the system returns the same enrolment identity and does not create a second carrier member.
-2. **Given** a carrier confirmation was already processed under insurerEventId E, **When** the same confirmation arrives again, **Then** the system no-ops without changing enrolment or issuing duplicate premiums.
-3. **Given** the carrier times out, **When** the admin checks status, **Then** status remains PendingExternal (honest Pending) and a retry path exists — never silent Active.
+1. **Given** A=`alan`, B=`axa`, **When** each admin enrols an employee, **Then** each company uses its configured carrier path.
+2. **Given** both complete, **When** outcomes are compared, **Then** enrolment/premium shapes match; only carrier interaction details differ.
+3. **Given** AXA-style optional setup-sheet-like rates (`docs/base.md` §7C), **When** B activates, **Then** Payroll still receives employerShareCents/employeeShareCents instructions (sheet rates preferred when present).
 
 ---
 
-### User Story 4 - Terminate stops cover and cotisations (Priority: P1)
+### User Story 3 - Safe retries and double-submit (Priority: P1) — brief US5
 
-As a company admin, I want leavers to drop off cover automatically so we do not keep paying or withholding after EmployeeTerminated.
+As a company admin, double-submit and retries must not create two members or two cotisations.
 
-**Why this priority**: Leave-drift is a primary operational pain; required demo step.
+**Why this priority**: Reliability success criterion (`docs/base.md` §12 #4; §4 failure table).
 
-**Independent Test**: Active enrolment → publish terminated for that employee → Ended + Stop instruction + Payroll stub lines removed; also Pending → terminate compensates carrier.
+**Independent Test**: Replay Idempotency-Key; replay duplicate carrier confirmation; assert single enrolment/member.
 
 **Acceptance Scenarios**:
 
-1. **Given** an Active enrolment, **When** EmployeeTerminated is received for that employee, **Then** enrolment becomes Ended, carrier membership is cancelled, and a premium Stop instruction is issued.
-2. **Given** Payroll stub had Santé lines for that enrolment/period, **When** Stop is consumed, **Then** those lines are removed or marked stopped.
-3. **Given** enrolment is still PendingExternal, **When** EmployeeTerminated arrives, **Then** local enrolment is cancelled and any in-flight carrier member is compensated/cancelled.
+1. **Given** enrol succeeded with key K, **When** resubmitted with K, **Then** **202** + same enrolment id; no second carrier member.
+2. **Given** insurerEventId E processed, **When** E arrives again, **Then** no-op (no status flip, no duplicate premium) — **test pack** (sync stub OK for §7E).
+3. **Given** carrier timeout, **When** admin reads status before exhaustion, **Then** still PendingExternal with retry — never silent Active.
+4. **Given** three createMember timeout/transport failures, **When** worker finishes attempts, **Then** status **Failed** + dead-letter counter/log incremented; never Active (FR-008a / `docs/base.md` §4 edge).
 
 ---
 
-### User Story 5 - Record legal dispense (Priority: P2)
+### User Story 4 - Terminate stops cover and cotisations (Priority: P1) — brief US3
 
-As a company admin, I record a dispense (legal exemption) instead of affiliation so we stay compliant when the employee must not join the collective contract.
+As a company admin, leavers drop off cover automatically after EmployeeTerminated so we do not keep paying/withholding.
 
-**Why this priority**: Required FR ANI story; second after the happy affiliation path.
+**Why this priority**: Leave-drift is a primary pain (`docs/base.md` §3). Terminate path: §4 data flow.
 
-**Independent Test**: Dispense with valid reason code → Dispensed; no Active cover; no non-zero premium instruction; audit retained.
+**Independent Test**: Active → Terminated → Ended + Stop + stub lines removed; Pending → terminate compensates carrier.
 
 **Acceptance Scenarios**:
 
-1. **Given** a valid dispense reason code from the seeded catalog, **When** admin records dispense for an employee, **Then** status is Dispensed and audit includes the reason.
-2. **Given** a Dispensed employee, **When** premium generation runs for that employee, **Then** no Active cover exists and no non-zero premium instruction is issued.
-3. **Given** an invalid reason code, **When** dispense is submitted, **Then** the system rejects the command without creating Dispensed status.
+1. **Given** Active enrolment, **When** EmployeeTerminated is received, **Then** Ended + carrier cancel + premium Stop.
+2. **Given** stub Santé lines exist, **When** Stop is consumed, **Then** lines removed or marked stopped.
+3. **Given** PendingExternal, **When** Terminated arrives, **Then** local cancel + carrier compensate/cancel.
 
 ---
 
-### User Story 6 - Honest enrolment status visibility (Priority: P2)
+### User Story 5 - Cancel enrolment (admin-initiated) (Priority: P2) — Domain API (not a brief US id)
 
-As a company admin, I want to see enrolment status (Pending / Active / Failed / Dispensed / Ended) so I am not lied to while the carrier is processing.
+As a company admin, I can cancel an in-progress or active affiliation for my company so cover and cotisations stop without waiting for termination.
 
-**Why this priority**: Trust and operability; pairs with P1 enrol.
+**Why this priority**: Domain API includes cancellations (`docs/base.md` §4 Domain API + Cancel footnote); complements terminate.
 
-**Independent Test**: After enrol, immediate read shows PendingExternal; after activation, Active with timeline/detail including member id and last premium instruction.
+**Independent Test**: Cancel Pending or Active for own company → Ended + carrier cancel when a member exists + Stop if premiums were issued; other company → 403.
 
 **Acceptance Scenarios**:
 
-1. **Given** enrol just accepted, **When** admin fetches enrolment detail, **Then** status is PendingExternal.
-2. **Given** carrier confirmed, **When** admin fetches detail, **Then** status is Active and detail includes insurer member reference and last premium instruction summary when issued.
-3. **Given** carrier rejected affiliation, **When** admin fetches detail, **Then** status is Failed (not Active).
+1. **Given** Active enrolment on Company A, **When** Company A admin cancels, **Then** status is Ended, carrier membership cancelled, premium Stop if instructions existed.
+2. **Given** PendingExternal with in-flight member, **When** admin cancels, **Then** status Ended + compensate carrier.
+3. **Given** Company A admin, **When** they cancel a Company B enrolment, **Then** denied (403).
 
 ---
 
-### User Story 7 - Employee my cover read-only (Priority: P3) _(stretch)_
+### User Story 6 - Record legal dispense (Priority: P2) — brief US2
 
-As an employee, I want to see my cover read-only so I know I am affiliated.
+As a company admin, I record a dispense (legal exemption) instead of affiliation when the employee must not join the collective contract.
+
+**Why this priority**: ANI affiliation + dispenses (`docs/base.md` §5).
+
+**Independent Test**: Valid reason → Dispensed; no Active; **no** premium instruction; audit kept.
+
+**Acceptance Scenarios**:
+
+1. **Given** valid seeded reason code, **When** admin dispenses, **Then** Dispensed + audit reason.
+2. **Given** Dispensed, **When** premium generation would run, **Then** no Active cover and no premium instruction.
+3. **Given** invalid reason code, **When** dispense submitted, **Then** rejected; no Dispensed record.
+
+---
+
+### User Story 7 - Honest enrolment status visibility (Priority: P2) — brief US6
+
+As a company admin, I see Pending / Active / Failed / Dispensed / Ended so I am not lied to while the carrier processes.
+
+**Why this priority**: Operability; FSM in `docs/base.md` §7 Enrolment FSM.
+
+**Independent Test**: Immediate read after enrol = PendingExternal; after success = Active with member ref + last premium summary when issued.
+
+**Acceptance Scenarios**:
+
+1. **Given** enrol just accepted, **When** detail fetched, **Then** PendingExternal.
+2. **Given** carrier confirmed, **When** detail fetched, **Then** Active + member ref + last premium summary if issued.
+3. **Given** carrier rejected, **When** detail fetched, **Then** Failed (not Active).
+
+---
+
+### User Story 8 - Employee my cover read-only (Priority: P3) — brief US7 stretch
+
+As an employee, I see my cover read-only so I know I am affiliated.
 
 **Why this priority**: Stretch in brief; optional for POC v1.
 
-**Independent Test**: Authenticated as employee.self for own id; GET cover returns plan name, status, effective dates; no enrol/cancel capabilities.
+**Independent Test**: `employee.self` GET cover → plan, status, dates; no commands.
 
 **Acceptance Scenarios**:
 
-1. **Given** employee has Active cover, **When** they request my cover, **Then** they see plan name, status, and effective dates only.
-2. **Given** employee.self role, **When** they attempt enrol or cancel, **Then** the system denies the action.
+1. **Given** Active cover, **When** employee requests my cover, **Then** plan name, status, effective dates only.
+2. **Given** `employee.self`, **When** enrol/cancel attempted, **Then** denied.
 
 ---
 
 ### Edge Cases
 
-- Double-click / duplicate Idempotency-Key enrol → same enrolment, no second member.
-- Insurer timeout → stay PendingExternal with retry; UI/API remain honest.
-- Duplicate carrier webhook / insurerEventId → inbox no-op.
-- Terminate while PendingExternal → cancel local + compensate carrier member.
-- Dispense instead of enrol → Dispensed; no Active; no non-zero premium; audit reason kept.
-- Wrong company scope → 403; Company A admin cannot enrol or view Company B.
-- Already Active / conflicting invariant → 409-style business conflict; no corrupt state.
-- Employee already Dispensed → enrol/dispense conflicts handled without silent overwrite.
-- Mid-period change / ChangeCoverage → out of POC v1 (documented assumption: full_month proration).
-- EmployeeHired auto-enrol → out of POC v1; only Terminated inbound lifecycle is required.
-- AXA-style setup-sheet rates present → still expressed as employer/employee shares to Payroll.
-- Concurrent terminate and activate → end state must not leave Active cover for a terminated employee (idempotent handlers).
+Canonical table: `docs/base.md` §4 **Failure / edge paths**. Spec MUST cover at least:
+
+- Double-click / same Idempotency-Key → same enrolment, no second member.
+- Insurer timeout → PendingExternal + retry (`docs/base.md` §4); after 3 attempts → Failed (FR-008a); never silent Active.
+- Duplicate webhook / insurerEventId → inbox no-op.
+- Terminate while Pending → cancel local + compensate carrier.
+- Dispense → Dispensed; no Active; no premium instruction; audit reason.
+- Dispense while PendingExternal/Active exists → 409 (enrol or dispense).
+- Enrol/dispense when company Insurance disabled → 409.
+- `coverage` other than `collective` → validation error.
+- Insurer retries exhausted → **Failed** + dead-letter counter/log; never silent Active; never stay Pending after exhaustion.
+- Webhook without valid stub signature → 401.
+- Missing/blank Idempotency-Key on enrol → 400.
+- Duplicate PremiumInstruction Issued/Stop to payroll → no duplicate lines.
+- Duplicate platform Terminated `eventId` → no-op.
+- Attempt to change company.carrier while Pending/Active exists → rejected / not offered in POC.
+- Wrong company scope → 403.
+- Already PendingExternal or Active for same employee+company → 409; no second in-flight enrolment.
+- Re-enrol after Ended or Dispensed → allowed (new enrolment id); prior record remains history.
+- Enrol when employee is HR-terminated → 409 (interprets `docs/base.md` §4 “terminated” as employee status).
+- Already Dispensed with no Ended path chosen → dispense/enrol conflict: no silent overwrite; if Dispensed is terminal for that record, new enrol creates a new enrolment after Dispensed (per uniqueness rule above).
+- ChangeCoverage / mid-period engine → out of scope (`full_month` assumption, §7C).
+- EmployeeHired auto-enrol → out of scope; Terminated required only.
+- Concurrent terminate vs activate → **terminate wins**; must not leave Active for a terminated employee; compensate if create raced.
+- Cancel on Dispensed / Failed / already Ended → 409.
+- Webhook confirmed when already Active (same member) → 200 no-op; rejected when not Pending → 200 no-op.
+- Seed plan with employerSharePct below 50 → boot/seed validation failure.
+- Idempotent enrol replay → 202 + same body.
 
 ## Requirements *(mandatory)*
 
+Normative detail for routes, payloads, and seed filenames: cite `docs/base.md` §4 (Domain API, Event payloads, Data flow) and §7B–C. Requirements below are acceptance-facing.
+
 ### Functional Requirements
 
-**Tenancy, roles, and access**
+**Tenancy, roles, and access** — also `docs/base.md` §4 Roles
 
-- **FR-001**: System MUST serve multiple client companies isolated by `companyId`.
-- **FR-002**: System MUST enforce `company.admin` scope to a single company; mismatched company context MUST be denied (403).
-- **FR-003**: System MUST support roles: `company.admin`, `system.worker`, `system.payroll_consumer`; MAY support `employee.self` for stretch my-cover.
-- **FR-004**: POC identity MAY be stubbed via explicit role/company/(employee) context; full SSO is out of scope.
+- **FR-001**: System MUST isolate all commands/queries/events by `companyId`.
+- **FR-002**: `company.admin` MUST be single-company scoped; mismatch → 403.
+- **FR-003**: Roles in scope: `company.admin`, `system.worker`, `system.payroll_consumer`; MAY `employee.self` (stretch).
+- **FR-004**: POC identity MAY be stub headers (`X-Role`, `X-Company-Id`, optional `X-Employee-Id`); SSO out of scope.
 
-**Enrolment lifecycle**
+**Enrolment lifecycle** — FSM `docs/base.md` §7
 
-- **FR-005**: System MUST accept EnrolEmployee intent for a company, employee, plan, coverage, and effective date, requiring an Idempotency-Key.
-- **FR-006**: On accept, system MUST create enrolment in PendingExternal and acknowledge asynchronously (accepted, not yet Active).
-- **FR-007**: System MUST transition PendingExternal → Active only after successful carrier affiliation; MUST record external member reference.
-- **FR-008**: System MUST support Failed when carrier rejects; MUST NOT silently mark Active on timeout.
-- **FR-009**: System MUST support CancelEnrolment by company admin leading toward Ended with carrier cancel when applicable.
-- **FR-010**: System MUST support DispenseEmployee with a validated reason code → Dispensed + audit; MUST NOT create Active cover or non-zero premium instructions.
-- **FR-011**: Illegal lifecycle transitions MUST be rejected without corrupting state.
+- **FR-005**: MUST accept EnrolEmployee (company, employee, plan, coverage, effective date) with Idempotency-Key.
+- **FR-005a**: POC `coverage` MUST be `collective` only; other values → 400/422 validation error.
+- **FR-005b**: EnrolEmployee and DispenseEmployee MUST conflict (409) when the company’s Insurance is not enabled.
+- **FR-005c**: Unknown `employeeId` / `planId`, or employee not belonging to `companyId`, MUST return 404.
+- **FR-005d**: POC accepts `effectiveFrom` as provided (no additional past/future window validation).
+- **FR-006**: On accept MUST create PendingExternal and acknowledge asynchronously (not Active).
+- **FR-007**: PendingExternal → Active only after carrier success; MUST store external member reference.
+- **FR-008**: MUST support Failed on carrier reject (including webhook `result=rejected` per `docs/base.md` FSM reject→Failed); MUST NOT Active on timeout.
+- **FR-008a**: On insurer timeout/failure to confirm, worker MUST **stay PendingExternal** and retry (aligns `docs/base.md` §4 edge “Stay Pending; retry”); after **3** attempts MUST transition to **Failed**, append audit `action=fail`, and increment Postgres `dead_letter_counters` row `name=activate_enrolment` (POC: no broker DLQ; see `data-model.md`). MUST NOT stay Pending after exhaustion; MUST NEVER silent Active. `attemptCount` increments only on timeout/transport failure of `createMember`; webhook `rejected` → Failed without consuming a retry attempt.
+- **FR-009**: MUST support admin CancelEnrolment → status **Ended** + carrier cancel/compensate as applicable; MUST outbox `EnrolmentCancelled`; MUST outbox `PremiumInstructionStop` if Issued premiums existed (`docs/base.md` §4).
+- **FR-009a**: CancelEnrolment on Dispensed, Failed, or already Ended MUST return **409** (illegal transition).
+- **FR-010**: MUST support DispenseEmployee with validated reason → Dispensed + audit; MUST NOT Active; MUST NOT emit premium instruction.
+- **FR-010a**: DispenseEmployee MUST conflict (409) if a PendingExternal or Active enrolment already exists for that employee+company (enrol **or** dispense, not both in-flight).
+- **FR-011**: Illegal transitions MUST be rejected without corrupting state.
+- **FR-011a**: At most one enrolment in PendingExternal or Active per (`companyId`, `employeeId`) at a time; a second EnrolEmployee MUST conflict (409) unless it is an Idempotency-Key replay.
+- **FR-011b**: Enrolments in Ended, Dispensed, or Failed do NOT block a new EnrolEmployee for the same employee+company (new enrolment id; history retained).
+- **FR-011c**: EnrolEmployee MUST conflict (409) when the employee is HR-terminated (inactive), aligning with `docs/base.md` §4 enrol error examples.
 
-**Carriers as adapters**
+**Carriers as adapters** — `docs/base.md` §4 Carriers; skill `/insurer-acl`
 
-- **FR-012**: System MUST route carrier operations through a single gateway abstraction selectable per company (`alan` | `axa` in POC).
-- **FR-013**: System MUST provide two distinct carrier behaviors in POC (API-style affiliate vs OC-style affiliate with optional setup-sheet-like rate params) without splitting into two products.
-- **FR-014**: Domain enrolment language MUST remain carrier-agnostic (no carrier-specific types in the core enrolment model).
-- **FR-015**: System MUST support carrier confirmation path (sync stub activation and/or webhook confirmation) with idempotent processing of insurer event ids.
+- **FR-012**: MUST route via one gateway abstraction; company selects `alan` | `axa` in POC.
+- **FR-013**: MUST ship two distinct stub behaviors (API-style vs OC-style + optional setup-sheet rates) without two products.
+- **FR-014**: Core enrolment model MUST stay carrier-agnostic (no carrier types in domain).
+- **FR-015**: MUST support confirmation with idempotent `insurerEventId` handling. Sync stub activation is sufficient for the §7E demo gate; an HTTP webhook endpoint is optional for the demo but MUST exist in the test pack (or equivalent harness) to prove duplicate webhook no-op and reject→Failed.
+- **FR-015a**: When the webhook endpoint is invoked, MUST validate a stub shared-secret header (`X-Carrier-Signature`); missing/wrong → 401.
+- **FR-015b**: Webhook payload MUST identify the enrolment via `insurerMemberId` and/or `enrolmentId`; if none match → 404.
+- **FR-015c**: Webhook `result=confirmed` MAY complete Pending→Active (same outcomes as worker activate); `result=rejected` MUST transition to **Failed** when PendingExternal (not Ended, not Active). Already Active with same member + confirmed → 200 no-op; rejected when not PendingExternal → 200 no-op.
+- **FR-015d**: Concurrent EmployeeTerminated vs activate MUST prefer terminate: never leave Active for a terminated employee; compensate carrier if create raced; Stop idempotent.
 
-**Cotisations and Payroll boundary**
+**Cotisations and Payroll boundary** — `docs/base.md` §4–5
 
-- **FR-016**: On Active affiliation, system MUST issue PremiumInstructionIssued including employerShare, employeeShare, currency, and period bounds.
-- **FR-017**: Employer share of base contribution MUST be ≥ 50% (ANI shape), driven by plan configuration.
-- **FR-018**: Payroll consumer MUST materialise two Santé lines (patronale + salariale) from premium instructions and MUST NOT write enrolment records.
-- **FR-019**: Insurance MUST NOT write Payroll tables; only ids and money instructions cross the integration boundary.
-- **FR-020**: On end of cover, system MUST issue premium Stop so Payroll consumer removes or stops lines.
+- **FR-016**: On Active, MUST issue PremiumInstructionIssued: `employerShareCents`, `employeeShareCents`, `currency: "EUR"`, period bounds.
+- **FR-016a**: Premium period MUST be the whole calendar month containing `effectiveFrom` in timezone **`Europe/Paris`** (`periodFrom` = first day, `periodTo` = last day of that month); POC labels may show `YYYY-MM` as in `docs/base.md` §4.
+- **FR-016b**: Currency MUST be EUR for POC; canonical Money unit MUST be integer **cents**; no multi-currency.
+- **FR-016c**: Money shares MUST be computed in cents as `employerShareCents = round(monthlyPremiumCents * employerSharePct / 100)` (half-up) and `employeeShareCents = monthlyPremiumCents - employerShareCents`, with `employerSharePct ≥ 50`.
+- **FR-016d**: For AXA-style carrier, when setup-sheet fixture rates are present they MUST supply the premium/`employerSharePct` inputs to FR-016c; otherwise use plan seed.
+- **FR-017**: Employer share of base MUST be ≥ 50% (plan configuration).
+- **FR-017a**: Idempotency-Key is required on EnrolEmployee only for POC; scope is `(companyId, route, key)` with no TTL requirement in POC storage; missing or blank key → **400**.
+- **FR-017b**: `company.carrier` MUST NOT change for a company while any enrolment for that company is PendingExternal or Active; POC configures carrier via seed only (no admin pick-carrier API).
+- **FR-018**: Payroll consumer MUST write two Santé lines from instructions and MUST NOT write Enrolment.
+- **FR-018a**: Payroll stub MUST apply Issued/Stop idempotently (dedupe by instruction `eventId`; fallback enrolmentId+period+kind); duplicate delivery MUST NOT duplicate lines.
+- **FR-018b**: MUST expose demo query `GET /v1/companies/:companyId/payroll-lines` (company.admin scoped) to inspect stub Santé lines (`docs/base.md` §7C).
+- **FR-019**: Insurance MUST NOT write Payroll tables; only ids + money instructions (cents) cross the bus.
+- **FR-020**: On end of cover, MUST issue premium Stop; consumer removes/stops lines (idempotent).
 
 **Platform events**
 
-- **FR-021**: System MUST react to EmployeeTerminated (inbound) by ending cover, cancelling/compensating carrier membership, and stopping premiums (including Pending compensation).
-- **FR-022**: EmployeeHired auto-enrol is OUT OF SCOPE for this feature; Terminated is required.
-- **FR-023**: EmployeeUpdated handling beyond terminate is OUT OF SCOPE for v1 unless needed for identity stability (document if touched).
+- **FR-021**: MUST handle EmployeeTerminated → end cover (Ended), cancel/compensate carrier, emit `EnrolmentCancelled`, and `PremiumInstructionStop` if Issued premiums existed (including Pending → Ended + compensate; no Stop if never Issued).
+- **FR-021a**: MUST expose `POST /v1/dev/platform-events` (dev/demo ingress) to publish platform fixtures such as EmployeeTerminated for §7E; caller MUST present `X-Role: system.worker` (stub identity).
+- **FR-021b**: Platform-events MUST require `eventId` and MUST no-op duplicates (processed_events / inbox).
+- **FR-022**: EmployeeHired auto-enrol OUT OF SCOPE; Terminated required (`docs/base.md` §7C).
+- **FR-023**: EmployeeUpdated beyond terminate OUT OF SCOPE for v1.
 
-**Reliability**
+**Reliability** — constitution IV; `docs/base.md` §4 building blocks
 
-- **FR-024**: Enrolment acceptance and outbound domain publication MUST be durably coupled (same unit of work / transactional outbox pattern) so events are not lost after commit.
-- **FR-025**: Same Idempotency-Key MUST return the same enrolment outcome without duplicate carrier members or duplicate premiums.
-- **FR-026**: Duplicate insurerEventId deliveries MUST no-op.
-- **FR-027**: System SHOULD expose correlation identifiers and Pending age signals for operability (structured observability).
+- **FR-024**: Enrolment accept + outbound publication MUST be durably coupled (transactional outbox).
+- **FR-025**: Same Idempotency-Key → same enrolment (**202** + same body); no duplicate member/premiums.
+- **FR-026**: Duplicate insurerEventId → no-op.
+- **FR-027**: MUST accept/generate `X-Correlation-Id` on HTTP; MUST propagate to worker jobs and carrier stub logs; MUST expose Pending age (or equivalent) for PendingExternal enrolments; structured logs required for demo evidence.
+- **FR-027a**: MUST append `audit_log` rows (`detail` jsonb + `correlationId` + optional `enrolmentId`, `createdAt`) for enrol/dispense/cancel/activate/terminate/fail and expose GET last N as JSON matching that shape (`docs/base.md` §7C; no full audit UI); GET MUST require `company.admin` and return only that `X-Company-Id`’s entries.
 
-**Queries / experience**
+**Queries / experience** — `docs/base.md` §4 Interface
 
-- **FR-028**: Company admin MUST list enrolments/cover for their company and fetch enrolment detail including status timeline essentials (status, member ref, last premium summary).
-- **FR-029**: Week-1 experience MAY be HTTP/script driven; polished admin UI is optional. If UI exists, it MUST support company home, enrol, dispense, and detail at minimum.
-- **FR-030**: Stretch: employee.self MAY read own cover only.
+- **FR-028**: Admin MUST list company cover and fetch enrolment detail (status, member ref, last premium summary).
+- **FR-028a**: Default list MUST include PendingExternal, Active, Failed, Dispensed and MUST exclude Ended; MUST support `includeEnded=true` (or equivalent) to include Ended history.
+- **FR-029**: Week-1 MAY be HTTP/script only; if UI exists, minimum screens per §4 Interface table.
+- **FR-030**: Stretch: `employee.self` read-only my cover.
 
-**Catalog / seed data (POC)**
+**Catalog / seed** — `docs/base.md` §7B (authoritative file list)
 
-- **FR-031**: System MUST load seeded companies (A Alan-style, B AXA-style), employees, plan Santé Base with employerSharePct ≥ 50, dispense reason codes, and admin bindings for demos.
-- **FR-032**: Proration for POC MUST be documented as full_month; no proration engine in v1.
+- **FR-031**: MUST load seeded companies A/B (alan/axa), employees, Santé Base (`employerSharePct` ≥ 50), dispense reasons, admin bindings; seed/boot MUST fail if any plan has `employerSharePct` below 50.
+- **FR-032**: Proration documented as `full_month`; no engine in v1 (§7C).
 
-**Explicit exclusions (MUST NOT)**
+**Explicit exclusions** — `docs/base.md` §13
 
-- **FR-033**: System MUST NOT implement claims, medical underwriting, quoting engine, or healthcare data vault.
-- **FR-034**: System MUST NOT implement full DSN/URSSAF calculation or multi-carrier marketplace UI.
-- **FR-035**: System MUST NOT become a second Employee master database.
-- **FR-036**: System MUST NOT require real Alan/AXA production APIs for POC success (stubs suffice).
-- **FR-037**: ChangeCoverage mid-life, reconcile cron, and multi-country are OUT OF SCOPE for this feature.
+- **FR-033**: MUST NOT implement claims, medical underwriting, quoting, or healthcare data vault.
+- **FR-034**: MUST NOT implement DSN/URSSAF engine or carrier marketplace UI.
+- **FR-035**: MUST NOT become a second Employee master database.
+- **FR-036**: MUST NOT require real Alan/AXA production APIs for POC success.
+- **FR-037**: ChangeCoverage, reconcile cron, multi-country OUT OF SCOPE for this feature.
 
 ### Key Entities
 
-- **Company**: PayFit client tenant; has `companyId`, carrier choice, Insurance enabled flag, associated plan.
-- **Employee**: Person under a company (seeded reference); not mastered by Insurance; may be active/terminated.
-- **Plan (Santé Base)**: Collective mutuelle product reference with premium and employerSharePct (≥ 50) / employee remainder.
-- **Enrolment**: Aggregate lifecycle for one employee on a plan — statuses PendingExternal, Active, Failed, Dispensed, Ended; effective dating; insurer member reference; audit for dispense reason.
-- **PremiumInstruction**: Employer/employee money shares for a period (Issued or Stop); consumed by Payroll, never a payslip engine.
-- **CarrierMembership (external)**: External member id and optional rate params behind the gateway; not a domain entity type leak.
-- **OutboxMessage / ProcessedEvent**: Reliability records for publish and inbound idempotency.
-- **PayrollSantéLine**: Stub bulletin lines (patronale + salariale) per employee/period.
-- **AdminBinding**: Role + company scope for stub identity.
-- **DispenseReason**: Catalog code validating legal exemption recording.
+Definitions summarized; normative event field shapes → [`contracts/events.md`](./contracts/events.md) (base §4 + locked deltas).
+
+- **Company** — tenant; carrier choice; Insurance enabled; plan association.
+- **Employee** — seeded reference under company; not mastered by Insurance.
+- **Plan (Santé Base)** — premium + employerSharePct (≥ 50).
+- **Enrolment** — PendingExternal | Active | Failed | Dispensed | Ended; effective dating; member ref; dispense audit. Uniqueness: ≤1 PendingExternal|Active per company+employee; Ended/Dispensed/Failed are historical and re-enrolable.
+- **PremiumInstruction** — Issued or Stop; employer/employee shares + period.
+- **CarrierMembership (external)** — member id / optional rate params behind gateway only.
+- **OutboxMessage / ProcessedEvent** — publish durability + inbound idempotency.
+- **PayrollSantéLine** — stub patronale + salariale lines.
+- **AdminBinding / DispenseReason** — stub identity and reason catalog.
 
 ## Success Criteria *(mandatory)*
 
+Aligns with `docs/base.md` §12. Demo timing/script: §9 and §7E (do not fork a second script).
+
 ### Measurable Outcomes
 
-- **SC-001**: In a single demo session (≤ 7 minutes), reviewers can see Company A (Alan-style) enrol → Pending → Active → premium shares → Payroll stub Santé lines.
-- **SC-002**: The same session shows Company B (AXA-style) enrol with different carrier interaction evidence but the same domain outcome shapes.
-- **SC-003**: Replaying enrol with the same Idempotency-Key yields one enrolment identity and does not create a second carrier member (verified in demo).
-- **SC-004**: Publishing EmployeeTerminated for an Active enrolment yields Ended cover, Stop instruction, and removal/stop of stub Santé lines.
-- **SC-005**: Cross-company access attempt by Company A admin against Company B resources is denied in 100% of tested attempts.
-- **SC-006**: Every issued premium instruction in the happy path has employer share ≥ 50% of base and a corresponding employee share.
-- **SC-007**: PayFit engineer review checklist passes: (1) Insurance ≠ Payroll ≠ Employee boundaries, (2) multi-company tenancy real, (3) ANI-shaped cotisation path, (4) outbox/idempotency/Pending first-class, (5) real carrier would be adapter swap not rewrite.
-- **SC-008**: Dispense path produces Dispensed with audit and zero non-zero premium instructions for that employee.
-- **SC-009**: After enrol acceptance, observers never see Active before carrier success in the standard path (Pending honesty).
+- **SC-001**: ≤ 7 minutes: Company A enrol → Pending → Active → shares → Payroll stub Santé lines (§9 steps 3 + §7E).
+- **SC-002**: Same session: Company B AXA-style enrol; different carrier evidence; same domain outcome shapes.
+- **SC-003**: Idempotency-Key replay → one enrolment id; no second carrier member (**§7E step 8 / demo gate**).
+- **SC-003b**: Duplicate webhook `insurerEventId` → no-op (**test pack**; §9 mentions webhook — not required in live §7E if sync stub used).
+- **SC-004**: EmployeeTerminated on Active → Ended + Stop + stub lines removed/stopped.
+- **SC-005**: 100% of cross-company admin attempts against the other company are denied.
+- **SC-006**: Every happy-path premium instruction has employer share ≥ 50% of base + employee share.
+- **SC-007**: Reviewers affirm all five §12 engineer checks (boundaries, tenancy, ANI shape, reliability, ACL swap).
+- **SC-008**: Dispense → Dispensed + audit + no premium instruction.
+- **SC-009**: Standard path never shows Active before carrier success (Pending honesty).
+- **SC-010**: Admin cancel on own-company Active/Pending ends cover without cross-tenant leakage (User Story 5).
 
 ## Assumptions
 
-- Source material is the entire `docs/base.md` (§1 Context through §14 One-pager). This spec translates that brief into Spec Kit feature form without dropping user stories US1–US7, edge paths, success criteria, or non-goals.
-- **Traceability**: Problem/context → §1–3; solution & stories → §4; regulatory → §5; scale → §6; architecture/demo/build matrix → §7; stack hints for later plan → §8; demo script → §9; deliverables → §10; week plan → §11; success → §12; non-goals → §13; cheat sheet → §14. Constitution `v1.0.0` governs implementation.
-- Dispense produces **no** premium instruction (not a zero-money instruction), matching the stricter reading of “no (or zero)”.
-- Week-1 primary experience is **HTTP/script (curl/Bruno)**; React admin is optional stretch after the vertical path works.
-- Carrier activation in POC may complete synchronously inside the stub worker; webhook endpoint remains specified for confirm/reject mapping and duplicate-delivery tests.
-- Only **EmployeeTerminated** inbound platform lifecycle is required; Hired/Updated auto-enrol are out of scope.
-- Proration assumption is **full_month**; documented in RFC/plan seed, not engineered.
-- FR geography is **France only** for this feature.
-- Identity is header/stub based for POC; real PayFit Identity later.
-- Event bus may be in-process for POC; production-like SQS/K8s is documentation-only.
-- “Money” shares are currency-labelled amounts suitable for bulletin lines; exact euro decimals come from plan seed.
-- OpenAPI/route list, event catalog, short RFC, and Compose packaging are deliverables of the implementation phase guided by this spec + `docs/base.md` §10 — not separate features.
-- Related doc `system-design-insurance-module.md` is referenced by the brief but not present yet; this spec + `docs/base.md` are authoritative until that file is added.
+- **Canonical brief**: entire `docs/base.md`. When this spec and the brief diverge, amend both; constitution wins on governance conflicts.
+- **Dispense**: no premium instruction (stricter reading of §4 “no (or zero)”).
+- **Experience**: HTTP/script first (§7C / §7E); React optional later.
+- **Carrier confirm**: sync stub enough for §7E demo; webhook in test pack for duplicate `insurerEventId` (Clarifications).
+- **Inbound lifecycle**: Terminated only; Hired/Updated auto-enrol out (§7C).
+- **Premium period**: whole calendar month of `effectiveFrom`; `full_month` proration; no engine (Clarifications + §7C).
+- **Geography / money**: FR only; **EUR cents**; Paris timezone for periods; AXA sheet overrides seed inputs when present.
+- **Identity / bus**: stub headers; in-process bus OK; SQS/K8s = README story only (§8, §7C).
+- **Missing related doc**: `system-design-insurance-module.md` is not in-repo; `docs/base.md` + this spec are authoritative until it exists.
+- **ROI / JetLang narrative** (§3, §1): mission context for talks — not separate acceptance tests.
+- **Clarify rule**: full brief → use it; partial brief → implied recommendation; absent → Spec Kit default (see Clarifications session).
+- **Coverage / enablement**: `coverage=collective` only; company must have Insurance enabled.
+- **Dispense vs enrol**: mutually exclusive while Pending/Active exists.
+- **Shares**: EUR via FR-016c; AXA setup-sheet overrides plan seed inputs when present (FR-016d).
+- **Retries**: up to 3 worker attempts then **Failed** + dead-letter counter; webhook stub signature required when endpoint used.
+- **Demo ingress**: `POST /v1/dev/platform-events` for Terminated fixture; Postgres `audit_log` append + GET last N.
+- **Performance**: demo-scale only; no p95/SLA (`docs/base.md` §8).
+- **Story ids**: brief US1–US7 are canonical; Cancel is Domain API–only (`docs/base.md` §4 footnote).
+- **AXA rates**: setup-sheet overrides plan seed inputs when present; share formula unchanged.
+- **Lookup / list defaults**: 404 unknown employee/plan; accept effectiveFrom as given; list excludes Ended unless includeEnded.
+- **Cross-cutting**: Paris TZ; EUR cents; enrol idempotency key mandatory; payroll + platform-event idempotency; carrier seed-immutable while in-flight/active; webhook enrolment lookup; stub role gates on platform-events/audit.
 
-## Demo Acceptance Script *(from brief §7E / §9)*
+## Planning Inputs *(for `/speckit-plan` and `/speckit-tasks`)*
 
-The feature is demo-ready when this script can be executed end-to-end:
+Do not re-specify here; consume from brief:
 
-1. Show seed (2 companies, employees, plan).
-2. Enrol Company A (Alan-style) → accepted Pending.
-3. Show carrier interaction evidence for Alan-style.
-4. Fetch enrolment → Active.
-5. Show PremiumInstructionIssued with shares.
-6. Show Payroll stub Santé lines.
-7. Enrol Company B (AXA-style) → different carrier evidence, same outcome shape.
-8. Replay enrol with same Idempotency-Key → same enrolment id.
-9. Publish EmployeeTerminated fixture → Ended + Stop + lines removed.
+| Need | Source |
+| --- | --- |
+| Ultimate architecture / five blocks / sequences | `docs/base.md` §7 |
+| Must-code order | §7A + §7D checklist |
+| Seed files | §7B |
+| Mock vs skip list | §7C |
+| Stack defaults | §8 |
+| Deliverables (OpenAPI/routes, event catalog, RFC, Compose, tests) | §10 |
+| Day/week sequencing | §11 |
+| Demo assets paths | §7E, skill `/insurance-demo` |
+
+## Demo Gate
+
+Execute **`docs/base.md` §7E** (nine steps) with talk track **§9**. Feature is demo-ready only when that script passes; keep `demo/README.md` as the runnable mirror, not a divergent checklist.

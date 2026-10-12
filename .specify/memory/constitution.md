@@ -1,10 +1,7 @@
 <!--
 Sync Impact Report
-- Version change: (none) → 1.0.0
-- Modified principles: N/A (initial ratification from docs/base.md)
-- Added sections: Core Principles (I–VIII), Domain & POC Constraints, Development Workflow, Governance
-- Removed sections: template placeholders
-- Follow-up TODOs: none
+- Version change: 1.0.3 → 1.0.4
+- Modified: Domain & POC Constraints — add dead_letter_counters (FR-008a / base §4 DLQ counter)
 -->
 
 # Insurance Vertical Constitution
@@ -61,8 +58,9 @@ or dual cotisations.
 Enrolment FSM statuses are: `PendingExternal`, `Active`, `Failed`, `Dispensed`,
 `Ended`. After `EnrolEmployee`, API MUST return 202 with `PendingExternal` and
 MUST NOT report Active until the carrier path confirms. Insurer timeout MUST
-keep Pending with retry — never silent Active. `DispenseEmployee` yields
-Dispensed with audit reason and MUST NOT produce Active cover or a non-zero
+keep Pending with retry — never silent Active; after **3** attempts MUST
+transition to **Failed** with a dead-letter counter/log. `DispenseEmployee`
+yields Dispensed with audit reason and MUST NOT produce Active cover or emit a
 premium instruction. `EmployeeTerminated` MUST end cover, cancel/compensate
 carrier membership, and emit premium Stop so Payroll stub removes lines.
 Terminate-while-Pending MUST cancel locally and compensate the stub member.
@@ -73,10 +71,12 @@ leave-drift is the core operational failure mode.
 
 ### VI. ANI Cotisation Shape (FR)
 
-`PremiumInstructionIssued` MUST carry `employerShare` and `employeeShare`
-(Money) plus period bounds and currency. Employer share of base contribution
-MUST be ≥ 50% (enforced via plan seed `employerSharePct`). Payroll stub
-materialises two Santé lines (patronale + salariale) from instructions.
+`PremiumInstructionIssued` MUST carry `employerShareCents` and
+`employeeShareCents` (integer EUR cents) plus period bounds and currency
+`"EUR"`. Employer share of base contribution MUST be ≥ 50% (enforced via plan
+seed `employerSharePct`). Share split MUST use half-up on employer cents with
+employee remainder so sums equal the premium. Payroll stub materialises two
+Santé lines (patronale + salariale) from instructions.
 Full DSN/URSSAF calculation is OUT OF SCOPE — Insurance feeds facts; Payroll
 owns declarations. POC is FR-only; country adapters come later without rewriting
 Enrolment lifecycle. Proration assumption for POC: `full_month` documented in
@@ -115,7 +115,8 @@ executable proof, not diagrams alone.
 ## Domain & POC Constraints
 
 **Ship shape:** Insurance `api` + `worker` (+ optional thin admin UI), own
-Postgres DB (aggregates + outbox + processed_events), events in/out.
+Postgres DB (`enrolments`, `outbox`, `processed_events`, `idempotency_keys`,
+`audit_log`, `payroll_lines`, `dead_letter_counters`), events in/out.
 
 **Stack (POC):** TypeScript; Node (Nest or lightweight); Postgres; in-process
 queue or LocalStack SQS; Docker Compose optional after local path works.
@@ -161,4 +162,4 @@ non-goals. Runtime guidance also lives in `.cursor/skills/insurance-*`.
 Unresolved conflicts with `docs/base.md` MUST be clarified via Spec Kit
 clarify before implementation proceeds.
 
-**Version**: 1.0.0 | **Ratified**: 2026-10-12 | **Last Amended**: 2026-10-12
+**Version**: 1.0.4 | **Ratified**: 2026-10-12 | **Last Amended**: 2026-10-12
