@@ -368,19 +368,11 @@ export function GuidedDemo({
       }
       await pause(80, signal);
       setCursor((c) => ({ ...c, clicking: false }));
-      await pause(700, signal);
-
-      onFlash('Layout · Force…');
-      await clickEl(await waitForEl(() => queryArchLayout('Force'), signal), signal);
-      await pause(1100, signal);
-
-      onFlash('Layout · By context…');
-      await clickEl(await waitForEl(() => queryArchLayout('By context'), signal), signal);
-      await pause(900, signal);
+      await pause(500, signal);
 
       onFlash('Zoom in on the flow…');
       demoDispatch({ type: 'arch-zoom', factor: 1.35 });
-      await pause(450, signal);
+      await pause(400, signal);
 
       const playBtn = await waitForEl(
         () => document.querySelector('.arch-player-btn[aria-label="Play"]') as HTMLElement | null,
@@ -393,10 +385,18 @@ export function GuidedDemo({
       await pause(160, signal);
       setCursor((c) => ({ ...c, clicking: false }));
 
-      onFlash('Architecture play — hops across Insurance → carrier → payroll…');
-      // Let play run a bit, then leave for Cards before it finishes.
-      await pause(4200, signal);
+      onFlash('Architecture play — then try layouts while it runs…');
+      await pause(1600, signal);
 
+      onFlash('Layout · Force…');
+      await clickEl(await waitForEl(() => queryArchLayout('Force'), signal), signal);
+      await pause(1400, signal);
+
+      onFlash('Layout · By context…');
+      await clickEl(await waitForEl(() => queryArchLayout('By context'), signal), signal);
+      await pause(1200, signal);
+
+      // Leave for Cards before play finishes.
       onFlash('Cards — impulse evidence beside Cover…');
       const cardsTab = await waitForEl(
         () =>
