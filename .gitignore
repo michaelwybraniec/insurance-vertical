@@ -1,34 +1,25 @@
-# Dependencies
 node_modules/
-.pnp
-.pnp.js
-
-# Build
 dist/
 build/
 coverage/
-*.tsbuildinfo
-
-# Env / secrets
 .env
 .env.*
 !.env.example
-
-# OS / IDE
+*.log
 .DS_Store
 Thumbs.db
+*.tmp
 *.swp
+.vscode/
 .idea/
-.vscode/*
-!.vscode/settings.json
-
-# Runtime / local POC data (regenerated)
-data/
 demo/last-*-call.json
+demo/dev-log.jsonl
+*.tsbuildinfo
 
-# Logs
-*.log
-npm-debug.log*
-
-# Spec Kit / tooling
-.specify/memory/.constitution-template.json
+# BEGIN Local Project Hub
+# Commit hub.yaml. Ignore local/runtime hub state only.
+hub.local.yaml
+.hub/
+.hub.pid
+.hub.pgid
+# END Local Project Hub

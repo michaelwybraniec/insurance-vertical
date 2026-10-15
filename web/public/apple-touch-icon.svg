@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-label="PayFit Insurance">
+  <defs>
+    <linearGradient id="bg" x1="28" y1="12" x2="152" y2="168" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0f766e"/>
+      <stop offset="1" stop-color="#0b4f4a"/>
+    </linearGradient>
+  </defs>
+  <rect width="180" height="180" rx="40" fill="url(#bg)"/>
+  <path
+    fill="#f4faf7"
+    d="M90 32c16 9 31 14 44 14.5v46c0 25-15.5 42.5-44 58.5-28.5-16-44-33.5-44-58.5v-46C59 46 74 41 90 32z"
+  />
+  <path
+    fill="#0b4f4a"
+    fill-rule="evenodd"
+    d="M79.5 108.5 63 92a6 6 0 0 1 8.5-8.5l9.5 9.5 22-23.5a6 6 0 1 1 8.7 8.3l-26.5 28.2a6 6 0 0 1-8.7 0z"
+  />
+</svg>

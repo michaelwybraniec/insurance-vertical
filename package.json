@@ -1,0 +1,48 @@
+{
+  "name": "insurance-vertical",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "worker": "tsx watch src/worker/index.ts",
+    "migrate": "tsx src/adapters/persistence/migrate.ts",
+    "seed": "tsx src/adapters/persistence/seed.ts",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:integration": "vitest run tests/integration tests/contract",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "web:dev": "npm --prefix web run dev",
+    "web:build": "npm --prefix web run build",
+    "demo:dev": "npm --prefix demo/static run dev",
+    "demo:build": "npm --prefix demo/static run build",
+    "demo:preview": "npm --prefix demo/static run preview"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.3.1",
+    "@fastify/swagger": "^9.9.2",
+    "@fastify/swagger-ui": "^6.1.2",
+    "dotenv": "^16.4.7",
+    "fastify": "^5.2.1",
+    "pg": "^8.13.3",
+    "yaml": "^2.9.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.21.0",
+    "@types/node": "^22.13.5",
+    "@types/pg": "^8.11.11",
+    "@vitest/coverage-v8": "^3.2.7",
+    "eslint": "^9.21.0",
+    "prettier": "^3.5.2",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.25.0",
+    "vitest": "^3.0.7"
+  }
+}
