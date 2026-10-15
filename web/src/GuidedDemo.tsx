@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, type CompanyCatalog, type CompanyId } from './api';
-import { demoDispatch, sleep, waitForDemo } from './guided-demo-bus';
+import { demoDispatch, sleep } from './guided-demo-bus';
 
 const AUTO_START_SEC = 5;
 
@@ -12,6 +12,8 @@ type Props = {
   onEnrolView: () => void;
   onCollapseEvidence: () => void;
   onSplitEvidence: () => void;
+  /** Fraction of workspace width for the right column (0–1). */
+  onSetEvidenceFraction: (fraction: number) => void;
   onRefresh: () => Promise<void>;
   onFlash: (msg: string) => void;
   onError: (msg: string | null) => void;
@@ -126,12 +128,21 @@ function waitForEl(
   });
 }
 
+function queryArchLayout(label: string): HTMLElement | null {
+  return (
+    ([...document.querySelectorAll('.arch-toolbar .log-chip, .impulse-arch-chrome .log-chip')].find(
+      (node) => (node.textContent ?? '').trim().toLowerCase() === label.toLowerCase(),
+    ) as HTMLElement | undefined) ?? null
+  );
+}
+
 export function GuidedDemo({
   companyId,
   onHome,
   onDocs,
   onCollapseEvidence,
   onSplitEvidence,
+  onSetEvidenceFraction,
   onRefresh,
   onFlash,
   onError,
@@ -328,11 +339,48 @@ export function GuidedDemo({
         signal,
         60,
       );
-      await pause(400, signal);
+      await pause(350, signal);
+
+      // Drag the Cover | Architecture splitter left so the map has more room.
+      onFlash('Widen Architecture — drag the column edge…');
+      const resizer = await waitForEl(
+        () => document.querySelector('.workspace-resizer') as HTMLElement | null,
+        signal,
+      );
+      await moveCursorTo(resizer, signal);
+      setCursor((c) => ({ ...c, clicking: true }));
+      await pause(100, signal);
+      {
+        const startX = cursorPos.current.x;
+        const startY = cursorPos.current.y;
+        const fromFrac = 0.58;
+        const toFrac = 0.74;
+        const steps = 12;
+        for (let i = 1; i <= steps; i += 1) {
+          if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+          const t = i / steps;
+          const x = startX - 90 * t;
+          setCursor({ x, y: startY, visible: true, clicking: true });
+          cursorPos.current = { x, y: startY };
+          onSetEvidenceFraction(fromFrac + (toFrac - fromFrac) * t);
+          await pause(40, signal);
+        }
+      }
+      await pause(80, signal);
+      setCursor((c) => ({ ...c, clicking: false }));
+      await pause(700, signal);
+
+      onFlash('Layout · Force…');
+      await clickEl(await waitForEl(() => queryArchLayout('Force'), signal), signal);
+      await pause(1100, signal);
+
+      onFlash('Layout · By context…');
+      await clickEl(await waitForEl(() => queryArchLayout('By context'), signal), signal);
+      await pause(900, signal);
 
       onFlash('Zoom in on the flow…');
-      demoDispatch({ type: 'arch-zoom', factor: 1.45 });
-      await pause(500, signal);
+      demoDispatch({ type: 'arch-zoom', factor: 1.35 });
+      await pause(450, signal);
 
       const playBtn = await waitForEl(
         () => document.querySelector('.arch-player-btn[aria-label="Play"]') as HTMLElement | null,
@@ -346,14 +394,24 @@ export function GuidedDemo({
       setCursor((c) => ({ ...c, clicking: false }));
 
       onFlash('Architecture play — hops across Insurance → carrier → payroll…');
-      await Promise.race([
-        waitForDemo('arch-idle', 180_000),
-        new Promise<never>((_, reject) => {
-          signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), {
-            once: true,
-          });
-        }),
-      ]);
+      // Let play run a bit, then leave for Cards before it finishes.
+      await pause(4200, signal);
+
+      onFlash('Cards — impulse evidence beside Cover…');
+      const cardsTab = await waitForEl(
+        () =>
+          ([...document.querySelectorAll('.log-tabs [role="tab"]')].find((n) =>
+            /^cards$/i.test((n.textContent ?? '').trim()),
+          ) as HTMLElement | null),
+        signal,
+      );
+      await moveCursorTo(cardsTab, signal);
+      setCursor((c) => ({ ...c, clicking: true }));
+      await pause(130, signal);
+      demoDispatch({ type: 'rail-tab', tab: 'evidence' });
+      await pause(160, signal);
+      setCursor((c) => ({ ...c, clicking: false }));
+      await pause(1400, signal);
 
       onFlash('Logs beside Cover — EnrolEmployee…');
       await clickEl(
@@ -432,6 +490,7 @@ export function GuidedDemo({
     onDocs,
     onCollapseEvidence,
     onSplitEvidence,
+    onSetEvidenceFraction,
     onRefresh,
     onFlash,
     onError,

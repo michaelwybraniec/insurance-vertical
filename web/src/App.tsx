@@ -811,6 +811,11 @@ export default function App() {
           // Cover stays visible; Architecture gets most of the width for the diagram.
           setEvidenceWidth(Math.round(w * 0.58));
         }}
+        onSetEvidenceFraction={(fraction) => {
+          const w = workspaceRef.current?.clientWidth ?? window.innerWidth;
+          const f = Math.min(0.92, Math.max(0, fraction));
+          setEvidenceWidth(Math.round(w * f));
+        }}
         onRefresh={refresh}
         onFlash={setFlash}
         onError={setError}
