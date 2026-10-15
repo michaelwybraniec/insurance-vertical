@@ -317,10 +317,10 @@ export function GuidedDemo({
         await pause(800, signal);
       }
 
-      // —— Split view: Cover stays visible; Architecture gets more width ——
+      // —— Split view: Cover stays visible; Architecture gets the stage ——
       onFlash('Opening Architecture beside Cover…');
       onSplitEvidence();
-      await pause(500, signal);
+      await pause(350, signal);
       const archTab = await waitForEl(
         () =>
           ([...document.querySelectorAll('.log-tabs [role="tab"]')].find((n) =>
@@ -330,90 +330,70 @@ export function GuidedDemo({
       );
       await moveCursorTo(archTab, signal);
       setCursor((c) => ({ ...c, clicking: true }));
-      await pause(130, signal);
+      await pause(100, signal);
       demoDispatch({ type: 'rail-tab', tab: 'architecture' });
-      await pause(160, signal);
+      await pause(120, signal);
       setCursor((c) => ({ ...c, clicking: false }));
       await waitForEl(
         () => document.querySelector('.arch-edge[data-id="e-command"]') as Element | null,
         signal,
         60,
       );
-      await pause(350, signal);
 
-      // Drag the Cover | Architecture splitter left so the map has more room.
-      onFlash('Widen Architecture — drag the column edge…');
+      // Give the map room, then Play immediately — layouts after play starts.
+      onFlash('Widen the map…');
       const resizer = await waitForEl(
         () => document.querySelector('.workspace-resizer') as HTMLElement | null,
         signal,
       );
       await moveCursorTo(resizer, signal);
       setCursor((c) => ({ ...c, clicking: true }));
-      await pause(100, signal);
+      await pause(80, signal);
       {
         const startX = cursorPos.current.x;
         const startY = cursorPos.current.y;
         const fromFrac = 0.58;
-        const toFrac = 0.74;
-        const steps = 12;
+        const toFrac = 0.78;
+        const steps = 10;
         for (let i = 1; i <= steps; i += 1) {
           if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
           const t = i / steps;
-          const x = startX - 90 * t;
+          const x = startX - 100 * t;
           setCursor({ x, y: startY, visible: true, clicking: true });
           cursorPos.current = { x, y: startY };
           onSetEvidenceFraction(fromFrac + (toFrac - fromFrac) * t);
-          await pause(40, signal);
+          await pause(35, signal);
         }
       }
-      await pause(80, signal);
       setCursor((c) => ({ ...c, clicking: false }));
-      await pause(500, signal);
+      await pause(280, signal);
 
-      onFlash('Zoom in on the flow…');
-      demoDispatch({ type: 'arch-zoom', factor: 1.35 });
-      await pause(400, signal);
+      demoDispatch({ type: 'arch-zoom', factor: 1.4 });
+      await pause(280, signal);
 
+      onFlash('Play the enrol story on the map…');
       const playBtn = await waitForEl(
         () => document.querySelector('.arch-player-btn[aria-label="Play"]') as HTMLElement | null,
         signal,
       );
       await moveCursorTo(playBtn, signal);
       setCursor((c) => ({ ...c, clicking: true }));
-      await pause(130, signal);
-      demoDispatch({ type: 'arch-play', rate: 2 });
-      await pause(160, signal);
+      await pause(110, signal);
+      demoDispatch({ type: 'arch-play', rate: 1.6 });
+      await pause(140, signal);
       setCursor((c) => ({ ...c, clicking: false }));
+      await pause(1800, signal);
 
-      onFlash('Architecture play — then try layouts while it runs…');
+      onFlash('Layout · Force — same hops, live physics…');
+      await clickEl(await waitForEl(() => queryArchLayout('Force'), signal), signal);
       await pause(1600, signal);
 
-      onFlash('Layout · Force…');
-      await clickEl(await waitForEl(() => queryArchLayout('Force'), signal), signal);
-      await pause(1400, signal);
-
-      onFlash('Layout · By context…');
+      onFlash('Layout · By context — zones lined up…');
       await clickEl(await waitForEl(() => queryArchLayout('By context'), signal), signal);
-      await pause(1200, signal);
+      await pause(1500, signal);
 
-      // Leave for Cards before play finishes.
-      onFlash('Cards — impulse evidence beside Cover…');
-      const cardsTab = await waitForEl(
-        () =>
-          ([...document.querySelectorAll('.log-tabs [role="tab"]')].find((n) =>
-            /^cards$/i.test((n.textContent ?? '').trim()),
-          ) as HTMLElement | null),
-        signal,
-      );
-      await moveCursorTo(cardsTab, signal);
-      setCursor((c) => ({ ...c, clicking: true }));
-      await pause(130, signal);
-      demoDispatch({ type: 'rail-tab', tab: 'evidence' });
-      await pause(160, signal);
-      setCursor((c) => ({ ...c, clicking: false }));
-      await pause(1400, signal);
-
-      onFlash('Logs beside Cover — EnrolEmployee…');
+      // Quick Logs peek (keep it short).
+      onFlash('Logs — one glance at EnrolEmployee…');
       await clickEl(
         await waitForEl(
           () =>
@@ -423,52 +403,55 @@ export function GuidedDemo({
           signal,
         ),
         signal,
+        'fast',
       );
-      await clickEl(
-        await waitForEl(
-          () =>
-            ([...document.querySelectorAll('.dev-line')].find((n) =>
-              /EnrolEmployee/i.test(n.textContent ?? ''),
-            ) as HTMLElement | null),
-          signal,
-        ),
+      const enrolLog = await waitForEl(
+        () =>
+          ([...document.querySelectorAll('.dev-line')].find((n) =>
+            /EnrolEmployee/i.test(n.textContent ?? ''),
+          ) as HTMLElement | null),
         signal,
-      );
-      await pause(1800, signal);
+      ).catch(() => null);
+      if (enrolLog) {
+        await clickEl(enrolLog, signal, 'fast');
+        await pause(700, signal);
+      } else {
+        await pause(400, signal);
+      }
 
-      onFlash('Logs — PendingExternal → Active…');
-      await clickEl(
-        await waitForEl(
-          () =>
-            ([...document.querySelectorAll('.dev-line')].find((n) =>
-              /PendingExternal → Active/i.test(n.textContent ?? ''),
-            ) as HTMLElement | null),
-          signal,
-        ),
+      // Back to Architecture, pull out to the full graph, then Cards.
+      onFlash('Back to Architecture — dezoom the whole graph…');
+      demoDispatch({ type: 'rail-tab', tab: 'architecture' });
+      await waitForEl(
+        () => document.querySelector('.arch-edge[data-id="e-command"]') as Element | null,
         signal,
-      );
+        40,
+      ).catch(() => null);
+      await pause(350, signal);
+      demoDispatch({ type: 'arch-zoom', factor: 0.62 });
+      await pause(900, signal);
+
+      onFlash('Cards — open a few impulses…');
+      demoDispatch({ type: 'rail-tab', tab: 'evidence' });
+      await pause(400, signal);
+      const impulseCards = [...document.querySelectorAll('.impulse-list .impulse')].slice(
+        0,
+        3,
+      ) as HTMLElement[];
+      for (const card of impulseCards) {
+        await clickEl(card, signal, 'fast');
+        await pause(750, signal);
+        const closeBtn = document.querySelector(
+          '.impulse-cover-close',
+        ) as HTMLElement | null;
+        if (closeBtn) {
+          await clickEl(closeBtn, signal, 'fast');
+          await pause(280, signal);
+        }
+      }
+
+      onFlash('Tour done — Docs → enrol → Architecture → Cards. Explore freely.');
       await pause(1800, signal);
-
-      onFlash('Logs — PremiumInstructionIssued…');
-      await clickEl(
-        await waitForEl(
-          () =>
-            ([...document.querySelectorAll('.dev-line')].find((n) =>
-              /PremiumInstructionIssued/i.test(n.textContent ?? ''),
-            ) as HTMLElement | null),
-          signal,
-        ),
-        signal,
-      );
-      await pause(1800, signal);
-
-      const archTabAgain = [...document.querySelectorAll('.log-tabs [role="tab"]')].find((n) =>
-        /^architecture$/i.test((n.textContent ?? '').trim()),
-      ) as HTMLElement | undefined;
-      if (archTabAgain) await clickEl(archTabAgain, signal);
-
-      onFlash('Tour done — Docs → enrol → Covered → Architecture/Logs. Explore freely.');
-      await pause(2400, signal);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         onFlash('Guided tour stopped.');
