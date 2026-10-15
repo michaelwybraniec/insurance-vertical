@@ -523,7 +523,13 @@ export default function App() {
     <div className="app-shell split">
       <header className="topbar">
         <h1 className="brand">
-          <img className="brand-logo" src="/favicon.svg" alt="" width={36} height={36} />
+          <img
+            className="brand-logo"
+            src={`${import.meta.env.BASE_URL}favicon.svg`}
+            alt=""
+            width={36}
+            height={36}
+          />
           <span className="brand-name">MutuelleFit</span>
           <span className="brand-sep" aria-hidden="true">
             :
