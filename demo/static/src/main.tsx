@@ -9,16 +9,16 @@ installMockApi();
 function DemoShell() {
   const base = import.meta.env.BASE_URL;
   return (
-    <>
+    <div className="demo-shell">
       <div className="static-demo-banner" role="status">
         <strong>Static demo</strong>
         <span>
-          In-browser mock — no API/DB. Use <strong>Start guided tour</strong> (center) — the app
-          walks enrol → architecture → logs. Base <code>{base}</code>
+          In-browser mock — no API/DB. Use <strong>Start guided tour</strong> (center): Docs slides →
+          enrol → architecture → logs. Base <code>{base}</code>
         </span>
       </div>
       <App />
-    </>
+    </div>
   );
 }
 

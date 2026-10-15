@@ -6,9 +6,10 @@ type Props = {
   companyId: CompanyId;
   catalog: CompanyCatalog | null;
   onHome: () => void;
+  onDocs: () => void;
   onEnrolView: () => void;
   onCollapseEvidence: () => void;
-  onWidenEvidence: () => void;
+  onSplitEvidence: () => void;
   onRefresh: () => Promise<void>;
   onFlash: (msg: string) => void;
   onError: (msg: string | null) => void;
@@ -20,6 +21,38 @@ type CursorState = {
   visible: boolean;
   clicking: boolean;
 };
+
+/** Short explainers shown in the app flash while Docs pages flip. */
+const DOC_BEATS: Array<{ label: string; flash: string }> = [
+  {
+    label: 'start',
+    flash: 'Docs 01 · Start — enrol is async: 202 PendingExternal before Covered',
+  },
+  {
+    label: 'architecture',
+    flash: 'Docs 02 · Architecture — five zones from Cover to carrier / payroll',
+  },
+  {
+    label: 'statuses',
+    flash: 'Docs 03 · Statuses — FSM honesty: never invent Active',
+  },
+  {
+    label: 'guarantees',
+    flash: 'Docs 04 · Guarantees — idempotency, tenancy, outbox, ACL',
+  },
+  {
+    label: 'scope',
+    flash: 'Docs 05 · Scope — built for real vs seed vs out of preview',
+  },
+  {
+    label: 'edges',
+    flash: 'Docs 06 · Edges — double-click, wrong company, insurer down…',
+  },
+  {
+    label: 'in cover',
+    flash: 'Docs 07 · In Cover — what you can try next in the live UI',
+  },
+];
 
 async function waitUntilActive(
   companyId: string,
@@ -61,7 +94,7 @@ function queryButton(label: string): HTMLElement | null {
 function waitForEl(
   finder: () => HTMLElement | null,
   signal: AbortSignal,
-  tries = 40,
+  tries = 50,
 ): Promise<HTMLElement> {
   return new Promise((resolve, reject) => {
     let n = 0;
@@ -89,8 +122,9 @@ function waitForEl(
 export function GuidedDemo({
   companyId,
   onHome,
+  onDocs,
   onCollapseEvidence,
-  onWidenEvidence,
+  onSplitEvidence,
   onRefresh,
   onFlash,
   onError,
@@ -117,7 +151,7 @@ export function GuidedDemo({
     const x = r.left + r.width / 2;
     const y = r.top + Math.min(r.height / 2, 22);
     const dist = Math.hypot(x - cursorPos.current.x, y - cursorPos.current.y);
-    const duration = Math.min(900, Math.max(320, dist * 0.5));
+    const duration = Math.min(850, Math.max(280, dist * 0.48));
     el.scrollIntoView({ block: 'nearest', behavior: 'smooth', inline: 'nearest' });
     setCursor({ x, y, visible: true, clicking: false });
     cursorPos.current = { x, y };
@@ -128,11 +162,11 @@ export function GuidedDemo({
     async (el: HTMLElement, signal: AbortSignal) => {
       await moveCursorTo(el, signal);
       setCursor((c) => ({ ...c, clicking: true }));
-      await pause(140, signal);
+      await pause(130, signal);
       el.click();
-      await pause(180, signal);
+      await pause(160, signal);
       setCursor((c) => ({ ...c, clicking: false }));
-      await pause(220, signal);
+      await pause(200, signal);
     },
     [moveCursorTo],
   );
@@ -153,10 +187,34 @@ export function GuidedDemo({
     });
 
     try {
-      // Cover first — right rail closed so the product UI is the stage.
+      // —— Docs deck first (quick flip + explain) ——
       onCollapseEvidence();
+      onFlash('Guided tour — opening Docs…');
+      const docsNav = await waitForEl(() => queryButton('docs'), signal);
+      await clickEl(docsNav, signal);
+      onDocs();
+      await pause(700, signal);
+
+      for (const beat of DOC_BEATS) {
+        onFlash(beat.flash);
+        const pageBtn = await waitForEl(() => {
+          const buttons = [...document.querySelectorAll('.guide-page-btn')];
+          return (
+            (buttons.find((n) => {
+              const title = n.querySelector('.guide-page-title')?.textContent?.trim().toLowerCase();
+              return title === beat.label;
+            }) as HTMLElement | undefined) ?? null
+          );
+        }, signal);
+        await clickEl(pageBtn, signal);
+        await pause(1150, signal);
+      }
+
+      // —— Cover: enrol ——
+      onFlash('Switching to Cover — enrol someone…');
+      await clickEl(await waitForEl(() => queryButton('cover'), signal), signal);
       onHome();
-      onFlash('Guided tour — resetting to seed…');
+      onCollapseEvidence();
       await api.resetDemo(companyId);
       await onRefresh();
       await pause(500, signal);
@@ -171,7 +229,6 @@ export function GuidedDemo({
 
       onFlash(`Enrol ${employee.name} on Santé Base…`);
       await clickEl(await waitForEl(() => queryButton('enrol employee'), signal), signal);
-
       onFlash('Submit enrolment → PendingExternal (202)…');
       await clickEl(await waitForEl(() => queryButton('submit enrolment'), signal), signal);
 
@@ -211,12 +268,13 @@ export function GuidedDemo({
       ) as HTMLElement | undefined;
       if (covered) {
         await moveCursorTo(covered, signal);
-        await pause(900, signal);
+        await pause(800, signal);
       }
 
-      onFlash('Opening Architecture — watch the hops…');
-      onWidenEvidence();
-      await pause(500, signal);
+      // —— Split view: Cover stays visible beside Architecture / Logs ——
+      onFlash('Opening Architecture beside Cover…');
+      onSplitEvidence();
+      await pause(550, signal);
       await clickEl(
         await waitForEl(
           () =>
@@ -227,7 +285,7 @@ export function GuidedDemo({
         ),
         signal,
       );
-      await pause(600, signal);
+      await pause(500, signal);
 
       const playBtn = await waitForEl(
         () => document.querySelector('.arch-player-btn[aria-label="Play"]') as HTMLElement | null,
@@ -235,12 +293,12 @@ export function GuidedDemo({
       );
       await moveCursorTo(playBtn, signal);
       setCursor((c) => ({ ...c, clicking: true }));
-      await pause(140, signal);
+      await pause(130, signal);
       demoDispatch({ type: 'arch-play', rate: 2 });
-      await pause(180, signal);
+      await pause(160, signal);
       setCursor((c) => ({ ...c, clicking: false }));
 
-      onFlash('Playing Architecture…');
+      onFlash('Architecture play — hops across Insurance → carrier → payroll…');
       await Promise.race([
         waitForDemo('arch-idle', 180_000),
         new Promise<never>((_, reject) => {
@@ -250,7 +308,7 @@ export function GuidedDemo({
         }),
       ]);
 
-      onFlash('Logs — EnrolEmployee…');
+      onFlash('Logs beside Cover — EnrolEmployee…');
       await clickEl(
         await waitForEl(
           () =>
@@ -271,7 +329,7 @@ export function GuidedDemo({
         ),
         signal,
       );
-      await pause(2000, signal);
+      await pause(1800, signal);
 
       onFlash('Logs — PendingExternal → Active…');
       await clickEl(
@@ -284,7 +342,7 @@ export function GuidedDemo({
         ),
         signal,
       );
-      await pause(2000, signal);
+      await pause(1800, signal);
 
       onFlash('Logs — PremiumInstructionIssued…');
       await clickEl(
@@ -297,15 +355,15 @@ export function GuidedDemo({
         ),
         signal,
       );
-      await pause(2000, signal);
+      await pause(1800, signal);
 
       const archTab = [...document.querySelectorAll('.log-tabs [role="tab"]')].find((n) =>
         /^architecture$/i.test((n.textContent ?? '').trim()),
       ) as HTMLElement | undefined;
       if (archTab) await clickEl(archTab, signal);
 
-      onFlash('Tour done — enrol → covered → architecture → logs. Explore freely.');
-      await pause(2500, signal);
+      onFlash('Tour done — Docs → enrol → Covered → Architecture/Logs. Explore freely.');
+      await pause(2400, signal);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         onFlash('Guided tour stopped.');
@@ -323,8 +381,9 @@ export function GuidedDemo({
     running,
     companyId,
     onHome,
+    onDocs,
     onCollapseEvidence,
-    onWidenEvidence,
+    onSplitEvidence,
     onRefresh,
     onFlash,
     onError,

@@ -799,19 +799,22 @@ export default function App() {
         </>
       )}
       </div>
-      {view.name !== 'guide' && (
-        <GuidedDemo
-          companyId={companyId}
-          catalog={catalog}
-          onHome={() => setView({ name: 'home' })}
-          onEnrolView={() => setView({ name: 'enrol' })}
-          onCollapseEvidence={() => setEvidenceWidth(0)}
-          onWidenEvidence={() => setEvidenceWidth(Number.POSITIVE_INFINITY)}
-          onRefresh={refresh}
-          onFlash={setFlash}
-          onError={setError}
-        />
-      )}
+      <GuidedDemo
+        companyId={companyId}
+        catalog={catalog}
+        onHome={() => setView({ name: 'home' })}
+        onDocs={() => setView({ name: 'guide' })}
+        onEnrolView={() => setView({ name: 'enrol' })}
+        onCollapseEvidence={() => setEvidenceWidth(0)}
+        onSplitEvidence={() => {
+          const w = workspaceRef.current?.clientWidth ?? window.innerWidth;
+          // Keep Cover visible beside Architecture / Logs (~45% rail).
+          setEvidenceWidth(Math.round(w * 0.45));
+        }}
+        onRefresh={refresh}
+        onFlash={setFlash}
+        onError={setError}
+      />
     </div>
   );
 }
