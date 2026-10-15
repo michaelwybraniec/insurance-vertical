@@ -6,6 +6,7 @@ export type DemoCommand =
   | { type: 'rail-tab'; tab: 'evidence' | 'dev' | 'architecture' }
   | { type: 'open-log-match'; match: string }
   | { type: 'arch-play'; rate?: number }
+  | { type: 'arch-zoom'; factor?: number }
   | { type: 'arch-idle' };
 
 export function demoDispatch(command: DemoCommand): void {

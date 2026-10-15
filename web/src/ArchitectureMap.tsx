@@ -95,6 +95,8 @@ type MapApi = {
   ) => void;
   /** Dim / inactive under live nodes and edges (SVG paint order). */
   orderDepth: (liveNodes: Set<string>, liveEdges: Set<string>) => void;
+  /** Multiply current zoom (guided tour). */
+  zoomBy: (factor: number) => void;
 };
 
 const LAYOUTS: { id: LayoutId; label: string }[] = [
@@ -708,6 +710,14 @@ export function ArchitectureMap({
 
   useEffect(() => {
     return demoListen((command) => {
+      if (command.type === 'arch-zoom') {
+        const factor =
+          typeof command.factor === 'number' && Number.isFinite(command.factor)
+            ? command.factor
+            : 1.4;
+        apiRef.current?.zoomBy(factor);
+        return;
+      }
       if (command.type !== 'arch-play') return;
       if (typeof command.rate === 'number' && Number.isFinite(command.rate)) {
         setPlayRate(command.rate);
@@ -1482,7 +1492,13 @@ export function ArchitectureMap({
           .on('interrupt', finish);
       });
 
-    apiRef.current = { apply, travel, haltTravel, setNodeLogs, orderDepth };
+    const zoomBy = (factor: number) => {
+      const behavior = zoomRef.current;
+      if (!behavior) return;
+      svg.transition().duration(420).call(behavior.scaleBy, factor);
+    };
+
+    apiRef.current = { apply, travel, haltTravel, setNodeLogs, orderDepth, zoomBy };
     apply(layoutRef.current, false);
 
     let seenW = frame.clientWidth;

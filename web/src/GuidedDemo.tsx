@@ -24,12 +24,11 @@ type CursorState = {
   clicking: boolean;
 };
 
-/** Short explainers shown in the app flash while Docs pages flip. */
+/**
+ * Docs pages after Start (01) — the deck already opens on slide 1.
+ * Short flash explainers while we flip quickly.
+ */
 const DOC_BEATS: Array<{ label: string; flash: string }> = [
-  {
-    label: 'start',
-    flash: 'Docs 01 · Start — enrol is async: 202 PendingExternal before Covered',
-  },
   {
     label: 'architecture',
     flash: 'Docs 02 · Architecture — five zones from Cover to carrier / payroll',
@@ -94,10 +93,10 @@ function queryButton(label: string): HTMLElement | null {
 }
 
 function waitForEl(
-  finder: () => HTMLElement | null,
+  finder: () => Element | null,
   signal: AbortSignal,
   tries = 50,
-): Promise<HTMLElement> {
+): Promise<Element> {
   return new Promise((resolve, reject) => {
     let n = 0;
     const tick = () => {
@@ -151,7 +150,7 @@ export function GuidedDemo({
     setRunning(false);
   }, []);
 
-  const moveCursorTo = useCallback(async (el: HTMLElement, signal: AbortSignal) => {
+  const moveCursorTo = useCallback(async (el: Element, signal: AbortSignal) => {
     const r = el.getBoundingClientRect();
     const x = r.left + r.width / 2;
     const y = r.top + Math.min(r.height / 2, 22);
@@ -164,11 +163,15 @@ export function GuidedDemo({
   }, []);
 
   const clickEl = useCallback(
-    async (el: HTMLElement, signal: AbortSignal) => {
+    async (el: Element, signal: AbortSignal) => {
       await moveCursorTo(el, signal);
       setCursor((c) => ({ ...c, clicking: true }));
       await pause(130, signal);
-      el.click();
+      if (typeof (el as HTMLElement).click === 'function') {
+        (el as HTMLElement).click();
+      } else {
+        el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+      }
       await pause(160, signal);
       setCursor((c) => ({ ...c, clicking: false }));
       await pause(200, signal);
@@ -195,13 +198,13 @@ export function GuidedDemo({
     });
 
     try {
-      // —— Docs deck first (quick flip + explain) ——
+      // —— Docs deck first (already on 01 Start — flip 02→07 quickly) ——
       onCollapseEvidence();
-      onFlash('Guided tour — opening Docs…');
+      onFlash('Docs 01 · Start — enrol is async (already here). Flipping the rest…');
       const docsNav = await waitForEl(() => queryButton('docs'), signal);
       await clickEl(docsNav, signal);
       onDocs();
-      await pause(700, signal);
+      await pause(450, signal);
 
       for (const beat of DOC_BEATS) {
         onFlash(beat.flash);
@@ -215,7 +218,7 @@ export function GuidedDemo({
           );
         }, signal);
         await clickEl(pageBtn, signal);
-        await pause(1150, signal);
+        await pause(520, signal);
       }
 
       // —— Cover: enrol ——
@@ -279,10 +282,10 @@ export function GuidedDemo({
         await pause(800, signal);
       }
 
-      // —— Split view: Cover stays visible beside Architecture / Logs ——
+      // —— Split view: Cover stays visible; Architecture gets more width ——
       onFlash('Opening Architecture beside Cover…');
       onSplitEvidence();
-      await pause(550, signal);
+      await pause(500, signal);
       await clickEl(
         await waitForEl(
           () =>
@@ -293,7 +296,42 @@ export function GuidedDemo({
         ),
         signal,
       );
-      await pause(500, signal);
+      await pause(700, signal);
+
+      onFlash('Zoom in on the flow…');
+      demoDispatch({ type: 'arch-zoom', factor: 1.45 });
+      await pause(650, signal);
+
+      onFlash('Inspect a hop — command edge (UI → API)…');
+      const edge = await waitForEl(
+        () => document.querySelector('.arch-edge[data-id="e-command"]') as HTMLElement | null,
+        signal,
+      );
+      await clickEl(edge, signal);
+      await pause(1100, signal);
+
+      onFlash('Inspect a node — Insurance API…');
+      const node = await waitForEl(
+        () => document.querySelector('.arch-node[data-id="api"]') as HTMLElement | null,
+        signal,
+      );
+      await clickEl(node, signal);
+      await pause(900, signal);
+
+      onFlash('Open a log on that node…');
+      const nodeLog = await waitForEl(
+        () =>
+          (document.querySelector(
+            '.arch-node[data-id="api"] .arch-node-log-line, .arch-node.is-expanded .arch-node-log-line',
+          ) as HTMLElement | null) ??
+          (document.querySelector('.arch-node-log-line') as HTMLElement | null),
+        signal,
+        30,
+      ).catch(() => null);
+      if (nodeLog) {
+        await clickEl(nodeLog, signal);
+        await pause(1200, signal);
+      }
 
       const playBtn = await waitForEl(
         () => document.querySelector('.arch-player-btn[aria-label="Play"]') as HTMLElement | null,

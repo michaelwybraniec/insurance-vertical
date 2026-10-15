@@ -808,8 +808,8 @@ export default function App() {
         onCollapseEvidence={() => setEvidenceWidth(0)}
         onSplitEvidence={() => {
           const w = workspaceRef.current?.clientWidth ?? window.innerWidth;
-          // Keep Cover visible beside Architecture / Logs (~45% rail).
-          setEvidenceWidth(Math.round(w * 0.45));
+          // Cover stays visible; Architecture gets most of the width for the diagram.
+          setEvidenceWidth(Math.round(w * 0.58));
         }}
         onRefresh={refresh}
         onFlash={setFlash}
