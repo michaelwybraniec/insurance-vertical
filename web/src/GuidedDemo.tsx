@@ -1,6 +1,8 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, type CompanyCatalog, type CompanyId } from './api';
 import { demoDispatch, sleep, waitForDemo } from './guided-demo-bus';
+
+const AUTO_START_SEC = 5;
 
 type Props = {
   companyId: CompanyId;
@@ -130,6 +132,7 @@ export function GuidedDemo({
   onError,
 }: Props) {
   const [running, setRunning] = useState(false);
+  const [countdown, setCountdown] = useState(AUTO_START_SEC);
   const [cursor, setCursor] = useState<CursorState>({
     x: window.innerWidth / 2,
     y: window.innerHeight / 2,
@@ -138,6 +141,8 @@ export function GuidedDemo({
   });
   const abortRef = useRef<AbortController | null>(null);
   const cursorPos = useRef({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+  const startedRef = useRef(false);
+  const autoUsedRef = useRef(false);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -172,11 +177,14 @@ export function GuidedDemo({
   );
 
   const run = useCallback(async () => {
-    if (running) return;
+    if (running || startedRef.current) return;
+    startedRef.current = true;
+    autoUsedRef.current = true;
     const ac = new AbortController();
     abortRef.current = ac;
     const { signal } = ac;
     setRunning(true);
+    setCountdown(0);
     onError(null);
     cursorPos.current = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
     setCursor({
@@ -376,6 +384,7 @@ export function GuidedDemo({
       if (abortRef.current === ac) abortRef.current = null;
       setCursor((c) => ({ ...c, visible: false, clicking: false }));
       setRunning(false);
+      startedRef.current = false;
     }
   }, [
     running,
@@ -391,12 +400,51 @@ export function GuidedDemo({
     moveCursorTo,
   ]);
 
+  const runRef = useRef(run);
+  runRef.current = run;
+
+  // Auto-start once after AUTO_START_SEC unless the visitor clicks sooner.
+  useEffect(() => {
+    if (running || autoUsedRef.current) return;
+    setCountdown(AUTO_START_SEC);
+    const startedAt = Date.now();
+    const tick = window.setInterval(() => {
+      if (autoUsedRef.current) {
+        window.clearInterval(tick);
+        return;
+      }
+      const left = Math.max(
+        0,
+        AUTO_START_SEC - Math.floor((Date.now() - startedAt) / 1000),
+      );
+      setCountdown(left);
+      if (left <= 0) {
+        window.clearInterval(tick);
+        autoUsedRef.current = true;
+        void runRef.current();
+      }
+    }, 250);
+    return () => window.clearInterval(tick);
+  }, [running]);
+
   return (
     <div className="guided-demo-root">
       {!running && (
-        <button type="button" className="btn guided-demo-launch" onClick={() => void run()}>
-          Start guided tour
-        </button>
+        <div className="guided-demo-hero">
+          <p className="guided-demo-hello">Hello</p>
+          <h2 className="guided-demo-hero-title">MutuelleFit guided tour</h2>
+          <p className="guided-demo-hero-lead">
+            A cursor will walk the product for you: flip the Docs slides, enrol an employee until
+            Covered, then play Architecture and open a few Logs — so you see enrol → wait → payslip
+            without guessing where to click.
+          </p>
+          <button type="button" className="btn guided-demo-launch" onClick={() => void run()}>
+            Start guided tour
+          </button>
+          <p className="guided-demo-auto" aria-live="polite">
+            Starts automatically in <strong>{countdown}s</strong>
+          </p>
+        </div>
       )}
 
       {running && (
@@ -407,7 +455,7 @@ export function GuidedDemo({
               style={{ transform: `translate(${cursor.x}px, ${cursor.y}px)` }}
               aria-hidden
             >
-              <svg width="22" height="22" viewBox="0 0 24 24">
+              <svg width="48" height="48" viewBox="0 0 24 24">
                 <path
                   d="M5 3l1.5 16.5L11 14l3.5 7 2-1-3.5-7H19L5 3z"
                   fill="var(--ink)"
