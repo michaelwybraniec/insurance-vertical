@@ -1,4 +1,3 @@
-import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { installMockApi } from './mock-api';
 import '../../../web/src/index.css';
@@ -14,8 +13,8 @@ function DemoShell() {
       <div className="static-demo-banner" role="status">
         <strong>Static demo</strong>
         <span>
-          In-browser mock — no API, Postgres, or worker. Enrol still goes Pending → Active (~1s).
-          Build with <code>npm run demo:build</code> · base <code>{base}</code>
+          In-browser mock — no API, Postgres, or worker. Use <strong>Run guided tour</strong> at the
+          bottom for enrol → Architecture play → log details. Base <code>{base}</code>
         </span>
       </div>
       <App />
@@ -23,8 +22,4 @@ function DemoShell() {
   );
 }
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <DemoShell />
-  </StrictMode>,
-);
+createRoot(document.getElementById('root')!).render(<DemoShell />);

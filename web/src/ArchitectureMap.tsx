@@ -29,6 +29,7 @@ import {
   type ArchStep,
 } from './architecture';
 import { GlassSelect } from './GlassSelect';
+import { demoDispatch, demoListen } from './guided-demo-bus';
 
 /** Square-ish card; edges snap to the box rim. */
 const NODE_W = 148;
@@ -679,13 +680,17 @@ export function ArchitectureMap({
       if (transportRef.current === 'playing') {
         transportRef.current = 'idle';
         setTransport('idle');
+        demoDispatch({ type: 'arch-idle' });
       }
     });
   };
 
   const playTransport = () => {
     const all = stepsRef.current;
-    if (all.length === 0) return;
+    if (all.length === 0) {
+      demoDispatch({ type: 'arch-idle' });
+      return;
+    }
     if (transportRef.current === 'playing') return;
     const resume = transportRef.current === 'paused';
     const from = resume ? playCursorRef.current : 0;
@@ -697,6 +702,21 @@ export function ArchitectureMap({
       enqueueSteps(all, 'replace', 0);
     }
   };
+
+  const playTransportRef = useRef(playTransport);
+  playTransportRef.current = playTransport;
+
+  useEffect(() => {
+    return demoListen((command) => {
+      if (command.type !== 'arch-play') return;
+      if (typeof command.rate === 'number' && Number.isFinite(command.rate)) {
+        setPlayRate(command.rate);
+        playRateRef.current = command.rate;
+      }
+      // Let React apply speed + architecture tab paint before play starts.
+      window.setTimeout(() => playTransportRef.current(), 80);
+    });
+  }, []);
 
   const pauseTransport = () => {
     if (transportRef.current !== 'playing') return;

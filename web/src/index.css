@@ -6174,3 +6174,98 @@ code {
 .row-live {
   background: var(--warn-soft);
 }
+
+
+/* —— Guided demo tour —— */
+.guided-demo-launch {
+  position: fixed;
+  left: 50%;
+  bottom: 1.75rem;
+  transform: translateX(-50%);
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  min-width: min(22rem, calc(100vw - 2rem));
+  padding: 0.85rem 1.15rem;
+  border: 1px solid rgba(15, 118, 110, 0.35);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 18px 50px rgba(15, 40, 35, 0.18);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  cursor: pointer;
+  text-align: left;
+  color: #134e4a;
+  font-family: inherit;
+}
+.guided-demo-launch:hover {
+  border-color: rgba(15, 118, 110, 0.55);
+  box-shadow: 0 22px 56px rgba(15, 40, 35, 0.22);
+}
+.guided-demo-kicker {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #0f766e;
+}
+.guided-demo-title {
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+.guided-demo-sub {
+  font-size: 0.8rem;
+  color: rgba(19, 78, 74, 0.72);
+}
+.guided-demo-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 100%, rgba(15, 118, 110, 0.08), transparent 55%);
+}
+.guided-demo-caption {
+  position: fixed;
+  left: 50%;
+  bottom: 1.75rem;
+  transform: translateX(-50%);
+  z-index: 90;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  width: min(36rem, calc(100vw - 1.5rem));
+  padding: 0.9rem 1.1rem;
+  border-radius: 16px;
+  background: #134e4a;
+  color: #ecfdf5;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.28);
+  font-family: inherit;
+}
+.guided-demo-caption-kicker {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #5eead4;
+}
+.guided-demo-caption p {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+.guided-demo-skip {
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: transparent;
+  color: #ecfdf5;
+  border-radius: 999px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.guided-demo-skip:hover {
+  background: rgba(255, 255, 255, 0.1);
+}

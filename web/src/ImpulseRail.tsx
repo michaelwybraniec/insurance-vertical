@@ -3,6 +3,7 @@ import { api, type DevLogEntry, type Impulse, type ImpulseFeed, type ImpulseReal
 import { ArchitectureMap } from './ArchitectureMap';
 import { flowStep, includeInStory, type ArchStep } from './architecture';
 import { readDevLine } from './design-log';
+import { demoListen } from './guided-demo-bus';
 
 type Tab = 'evidence' | 'dev' | 'architecture';
 type RealityFilter = 'all' | ImpulseReality;
@@ -87,10 +88,12 @@ function DevLine({
   item,
   open,
   onToggle,
+  logKey,
 }: {
   item: DevLogEntry;
   open: boolean;
   onToggle: () => void;
+  logKey: string;
 }) {
   const reading = readDevLine(item);
   const hasFields = Object.keys(item.fields).length > 0;
@@ -107,7 +110,7 @@ function DevLine({
   });
 
   return (
-    <li className={`dev-line-wrap${open ? ' is-open' : ''}`}>
+    <li className={`dev-line-wrap${open ? ' is-open' : ''}`} data-log-key={logKey}>
       <button
         ref={buttonRef}
         type="button"
@@ -312,6 +315,35 @@ export function ImpulseRail({ companyId }: { companyId: string }) {
     return all;
   }, [logs, wired]);
 
+  useEffect(() => {
+    return demoListen((command) => {
+      if (command.type === 'rail-tab') {
+        setTab(command.tab);
+        return;
+      }
+      if (command.type !== 'open-log-match') return;
+      setTab('dev');
+      setFollowing(false);
+      const needle = command.match.toLowerCase();
+      // Prefer the newest matching line (end of chronological stream).
+      const hit = [...stream].reverse().find(({ item }) => {
+        const reading = readDevLine(item);
+        return (
+          reading.element.toLowerCase().includes(needle) ||
+          reading.line.toLowerCase().includes(needle) ||
+          item.msg.toLowerCase().includes(needle)
+        );
+      });
+      if (hit) {
+        setOpenLine(hit.key);
+        window.requestAnimationFrame(() => {
+          const el = logBox.current?.querySelector(`[data-log-key="${CSS.escape(hit.key)}"]`);
+          el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        });
+      }
+    });
+  }, [stream]);
+
   const [archChromeHost, setArchChromeHost] = useState<HTMLDivElement | null>(null);
 
   return (
@@ -432,6 +464,7 @@ export function ImpulseRail({ companyId }: { companyId: string }) {
               {stream.map(({ item, key }) => (
                 <DevLine
                   key={key}
+                  logKey={key}
                   item={item}
                   open={openLine === key}
                   onToggle={() => {

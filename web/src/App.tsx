@@ -10,6 +10,7 @@ import {
 import { GlassSelect } from './GlassSelect';
 import { HowItWorks } from './HowItWorks';
 import { ImpulseRail } from './ImpulseRail';
+import { GuidedDemo } from './GuidedDemo';
 
 const EVIDENCE_WIDTH_KEY = 'payfit-mutuelle-evidence-width';
 const EVIDENCE_WIDTH_DEFAULT = 420;
@@ -798,6 +799,18 @@ export default function App() {
         </>
       )}
       </div>
+      {view.name !== 'guide' && (
+        <GuidedDemo
+          companyId={companyId}
+          catalog={catalog}
+          onHome={() => setView({ name: 'home' })}
+          onEnrolView={() => setView({ name: 'enrol' })}
+          onWidenEvidence={() => setEvidenceWidth(Number.POSITIVE_INFINITY)}
+          onRefresh={refresh}
+          onFlash={setFlash}
+          onError={setError}
+        />
+      )}
     </div>
   );
 }
