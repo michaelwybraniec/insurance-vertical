@@ -29,7 +29,7 @@ import {
   type ArchStep,
 } from './architecture';
 import { GlassSelect } from './GlassSelect';
-import { demoDispatch, demoListen } from './guided-demo-bus';
+import { demoDispatch, demoListen, type DemoArchInspect } from './guided-demo-bus';
 
 /** Square-ish card; edges snap to the box rim. */
 const NODE_W = 148;
@@ -603,10 +603,13 @@ async function playEdges(
 export function ArchitectureMap({
   steps,
   chromeHost = null,
+  demoInspect = null,
 }: {
   steps: readonly ArchStep[];
   /** When set, toolbar renders here (one row with Cards / Logs / Architecture). */
   chromeHost?: HTMLElement | null;
+  /** Guided-tour inspect intent from ImpulseRail (applies on mount + updates). */
+  demoInspect?: DemoArchInspect | null;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -708,25 +711,8 @@ export function ArchitectureMap({
   const playTransportRef = useRef(playTransport);
   playTransportRef.current = playTransport;
 
-  useEffect(() => {
-    return demoListen((command) => {
-      if (command.type === 'arch-zoom') {
-        const factor =
-          typeof command.factor === 'number' && Number.isFinite(command.factor)
-            ? command.factor
-            : 1.4;
-        apiRef.current?.zoomBy(factor);
-        return;
-      }
-      if (command.type !== 'arch-play') return;
-      if (typeof command.rate === 'number' && Number.isFinite(command.rate)) {
-        setPlayRate(command.rate);
-        playRateRef.current = command.rate;
-      }
-      // Let React apply speed + architecture tab paint before play starts.
-      window.setTimeout(() => playTransportRef.current(), 80);
-    });
-  }, []);
+  /** Replay a recorded hop — pauses live transport first. */
+  const replayRef = useRef<(key: string) => void>(() => {});
 
   const pauseTransport = () => {
     if (transportRef.current !== 'playing') return;
@@ -747,8 +733,6 @@ export function ArchitectureMap({
     setTransport('idle');
   };
 
-  /** Replay a recorded hop — pauses live transport first. */
-  const replayRef = useRef<(key: string) => void>(() => {});
   const replayStep = (key: string) => {
     const step = stepsRef.current.find((item) => item.key === key);
     if (!step) return;
@@ -775,6 +759,58 @@ export function ArchitectureMap({
       });
   };
   replayRef.current = replayStep;
+
+  // Apply guided-tour inspect from ImpulseRail (always listening — survives late mount).
+  useEffect(() => {
+    if (!demoInspect) return;
+    if (demoInspect.kind === 'edge') {
+      const edge = ARCH_EDGES.find((item) => item.id === demoInspect.id);
+      if (edge) setInspect({ kind: 'edge', edge });
+      return;
+    }
+    const node = ARCH_NODES.find((item) => item.id === demoInspect.id);
+    if (node) setInspect({ kind: 'node', node });
+  }, [demoInspect]);
+
+  useEffect(() => {
+    return demoListen((command) => {
+      if (command.type === 'arch-zoom') {
+        const factor =
+          typeof command.factor === 'number' && Number.isFinite(command.factor)
+            ? command.factor
+            : 1.4;
+        apiRef.current?.zoomBy(factor);
+        return;
+      }
+      if (command.type === 'arch-replay-log') {
+        const root = svgRef.current;
+        if (!root) return;
+        const scope = command.nodeId
+          ? root.querySelector(`.arch-node[data-id="${command.nodeId}"]`)
+          : root;
+        const line = scope?.querySelector('.arch-node-log-line') as HTMLElement | null;
+        if (line) {
+          line.click();
+          return;
+        }
+        // No mini-log yet — replay first story hop that touches this node (or any).
+        const bags = nodeLogBags(stepsRef.current, null);
+        const entries = command.nodeId
+          ? (bags.get(command.nodeId) ?? [])
+          : [...bags.values()].flat();
+        const key = entries[0]?.key;
+        if (key) replayRef.current(key);
+        return;
+      }
+      if (command.type !== 'arch-play') return;
+      if (typeof command.rate === 'number' && Number.isFinite(command.rate)) {
+        setPlayRate(command.rate);
+        playRateRef.current = command.rate;
+      }
+      // Let React apply speed + architecture tab paint before play starts.
+      window.setTimeout(() => playTransportRef.current(), 80);
+    });
+  }, []);
 
   useEffect(() => {
     const svgEl = svgRef.current;
@@ -1780,6 +1816,13 @@ export function ArchitectureMap({
           className={`arch-side${inspect ? ' is-open' : ''}`}
           style={{ width: sideW }}
           aria-label="Details"
+          data-arch-inspect={
+            inspect?.kind === 'edge'
+              ? `edge:${inspect.edge.id}`
+              : inspect?.kind === 'node'
+                ? `node:${inspect.node.id}`
+                : undefined
+          }
         >
           <div
             className="arch-side-resize"

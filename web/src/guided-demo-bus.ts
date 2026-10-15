@@ -2,11 +2,19 @@
 
 export const DEMO_EVENT = 'mutuellefit-demo';
 
+/** Inspect intent held by ImpulseRail so ArchitectureMap can apply it on mount. */
+export type DemoArchInspect =
+  | { kind: 'edge'; id: string; at: number }
+  | { kind: 'node'; id: string; at: number };
+
 export type DemoCommand =
   | { type: 'rail-tab'; tab: 'evidence' | 'dev' | 'architecture' }
   | { type: 'open-log-match'; match: string }
   | { type: 'arch-play'; rate?: number }
   | { type: 'arch-zoom'; factor?: number }
+  | { type: 'arch-inspect-edge'; edgeId: string }
+  | { type: 'arch-inspect-node'; nodeId: string }
+  | { type: 'arch-replay-log'; nodeId?: string }
   | { type: 'arch-idle' };
 
 export function demoDispatch(command: DemoCommand): void {

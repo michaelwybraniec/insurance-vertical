@@ -150,31 +150,34 @@ export function GuidedDemo({
     setRunning(false);
   }, []);
 
-  const moveCursorTo = useCallback(async (el: Element, signal: AbortSignal) => {
+  const moveCursorTo = useCallback(async (el: Element, signal: AbortSignal, pace: 'normal' | 'fast' = 'normal') => {
     const r = el.getBoundingClientRect();
     const x = r.left + r.width / 2;
     const y = r.top + Math.min(r.height / 2, 22);
     const dist = Math.hypot(x - cursorPos.current.x, y - cursorPos.current.y);
-    const duration = Math.min(850, Math.max(280, dist * 0.48));
-    el.scrollIntoView({ block: 'nearest', behavior: 'smooth', inline: 'nearest' });
+    const duration =
+      pace === 'fast'
+        ? Math.min(280, Math.max(90, dist * 0.22))
+        : Math.min(850, Math.max(280, dist * 0.48));
+    el.scrollIntoView({ block: 'nearest', behavior: pace === 'fast' ? 'auto' : 'smooth', inline: 'nearest' });
     setCursor({ x, y, visible: true, clicking: false });
     cursorPos.current = { x, y };
     await pause(duration, signal);
   }, []);
 
   const clickEl = useCallback(
-    async (el: Element, signal: AbortSignal) => {
-      await moveCursorTo(el, signal);
+    async (el: Element, signal: AbortSignal, pace: 'normal' | 'fast' = 'normal') => {
+      await moveCursorTo(el, signal, pace);
       setCursor((c) => ({ ...c, clicking: true }));
-      await pause(130, signal);
+      await pause(pace === 'fast' ? 60 : 130, signal);
       if (typeof (el as HTMLElement).click === 'function') {
         (el as HTMLElement).click();
       } else {
         el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
       }
-      await pause(160, signal);
+      await pause(pace === 'fast' ? 70 : 160, signal);
       setCursor((c) => ({ ...c, clicking: false }));
-      await pause(200, signal);
+      await pause(pace === 'fast' ? 40 : 200, signal);
     },
     [moveCursorTo],
   );
@@ -200,11 +203,11 @@ export function GuidedDemo({
     try {
       // —— Docs deck first (already on 01 Start — flip 02→07 quickly) ——
       onCollapseEvidence();
-      onFlash('Docs 01 · Start — enrol is async (already here). Flipping the rest…');
+      onFlash('Docs 01 · Start — flipping 02→07…');
       const docsNav = await waitForEl(() => queryButton('docs'), signal);
-      await clickEl(docsNav, signal);
+      await clickEl(docsNav, signal, 'fast');
       onDocs();
-      await pause(450, signal);
+      await pause(180, signal);
 
       for (const beat of DOC_BEATS) {
         onFlash(beat.flash);
@@ -217,8 +220,8 @@ export function GuidedDemo({
             }) as HTMLElement | undefined) ?? null
           );
         }, signal);
-        await clickEl(pageBtn, signal);
-        await pause(520, signal);
+        await clickEl(pageBtn, signal, 'fast');
+        await pause(200, signal);
       }
 
       // —— Cover: enrol ——
@@ -286,51 +289,95 @@ export function GuidedDemo({
       onFlash('Opening Architecture beside Cover…');
       onSplitEvidence();
       await pause(500, signal);
-      await clickEl(
-        await waitForEl(
-          () =>
-            ([...document.querySelectorAll('.log-tabs [role="tab"]')].find((n) =>
-              /^architecture$/i.test((n.textContent ?? '').trim()),
-            ) as HTMLElement | null),
-          signal,
-        ),
+      const archTab = await waitForEl(
+        () =>
+          ([...document.querySelectorAll('.log-tabs [role="tab"]')].find((n) =>
+            /^architecture$/i.test((n.textContent ?? '').trim()),
+          ) as HTMLElement | null),
         signal,
       );
-      await pause(700, signal);
+      await moveCursorTo(archTab, signal);
+      setCursor((c) => ({ ...c, clicking: true }));
+      await pause(130, signal);
+      demoDispatch({ type: 'rail-tab', tab: 'architecture' });
+      await pause(160, signal);
+      setCursor((c) => ({ ...c, clicking: false }));
+      await waitForEl(
+        () => document.querySelector('.arch-edge[data-id="e-command"]') as Element | null,
+        signal,
+        60,
+      );
+      await pause(400, signal);
 
       onFlash('Zoom in on the flow…');
       demoDispatch({ type: 'arch-zoom', factor: 1.45 });
       await pause(650, signal);
 
+      // SVG nodes use d3-drag (not click) — ImpulseRail holds inspect intent so the
+      // details panel opens even if ArchitectureMap mounted a tick late.
       onFlash('Inspect a hop — command edge (UI → API)…');
       const edge = await waitForEl(
-        () => document.querySelector('.arch-edge[data-id="e-command"]') as HTMLElement | null,
+        () => document.querySelector('.arch-edge[data-id="e-command"]') as Element | null,
         signal,
       );
-      await clickEl(edge, signal);
-      await pause(1100, signal);
+      await moveCursorTo(edge, signal);
+      setCursor((c) => ({ ...c, clicking: true }));
+      await pause(130, signal);
+      demoDispatch({ type: 'arch-inspect-edge', edgeId: 'e-command' });
+      await waitForEl(
+        () => document.querySelector('.arch-side[data-arch-inspect="edge:e-command"]') as Element | null,
+        signal,
+        40,
+      );
+      await pause(160, signal);
+      setCursor((c) => ({ ...c, clicking: false }));
+      await pause(1200, signal);
 
       onFlash('Inspect a node — Insurance API…');
       const node = await waitForEl(
-        () => document.querySelector('.arch-node[data-id="api"]') as HTMLElement | null,
+        () => document.querySelector('.arch-node[data-id="api"]') as Element | null,
         signal,
       );
-      await clickEl(node, signal);
-      await pause(900, signal);
+      await moveCursorTo(node, signal);
+      setCursor((c) => ({ ...c, clicking: true }));
+      await pause(130, signal);
+      demoDispatch({ type: 'arch-inspect-node', nodeId: 'api' });
+      await waitForEl(
+        () => document.querySelector('.arch-side[data-arch-inspect="node:api"]') as Element | null,
+        signal,
+        40,
+      );
+      await pause(160, signal);
+      setCursor((c) => ({ ...c, clicking: false }));
+      await pause(1100, signal);
 
       onFlash('Open a log on that node…');
       const nodeLog = await waitForEl(
         () =>
           (document.querySelector(
             '.arch-node[data-id="api"] .arch-node-log-line, .arch-node.is-expanded .arch-node-log-line',
-          ) as HTMLElement | null) ??
-          (document.querySelector('.arch-node-log-line') as HTMLElement | null),
+          ) as Element | null) ??
+          (document.querySelector('.arch-node-log-line') as Element | null),
         signal,
-        30,
+        40,
       ).catch(() => null);
       if (nodeLog) {
-        await clickEl(nodeLog, signal);
+        await moveCursorTo(nodeLog, signal);
+        setCursor((c) => ({ ...c, clicking: true }));
+        await pause(130, signal);
+        demoDispatch({ type: 'arch-replay-log', nodeId: 'api' });
+        await pause(160, signal);
+        setCursor((c) => ({ ...c, clicking: false }));
         await pause(1200, signal);
+      } else {
+        // Enrol already filled the story — replay even if the mini-log DOM lagged.
+        await moveCursorTo(node, signal);
+        setCursor((c) => ({ ...c, clicking: true }));
+        await pause(130, signal);
+        demoDispatch({ type: 'arch-replay-log', nodeId: 'api' });
+        await pause(160, signal);
+        setCursor((c) => ({ ...c, clicking: false }));
+        await pause(900, signal);
       }
 
       const playBtn = await waitForEl(
@@ -403,10 +450,10 @@ export function GuidedDemo({
       );
       await pause(1800, signal);
 
-      const archTab = [...document.querySelectorAll('.log-tabs [role="tab"]')].find((n) =>
+      const archTabAgain = [...document.querySelectorAll('.log-tabs [role="tab"]')].find((n) =>
         /^architecture$/i.test((n.textContent ?? '').trim()),
       ) as HTMLElement | undefined;
-      if (archTab) await clickEl(archTab, signal);
+      if (archTabAgain) await clickEl(archTabAgain, signal);
 
       onFlash('Tour done — Docs → enrol → Covered → Architecture/Logs. Explore freely.');
       await pause(2400, signal);

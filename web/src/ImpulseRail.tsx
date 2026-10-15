@@ -3,7 +3,7 @@ import { api, type DevLogEntry, type Impulse, type ImpulseFeed, type ImpulseReal
 import { ArchitectureMap } from './ArchitectureMap';
 import { flowStep, includeInStory, type ArchStep } from './architecture';
 import { readDevLine } from './design-log';
-import { demoListen } from './guided-demo-bus';
+import { demoListen, type DemoArchInspect } from './guided-demo-bus';
 
 type Tab = 'evidence' | 'dev' | 'architecture';
 type RealityFilter = 'all' | ImpulseReality;
@@ -315,10 +315,23 @@ export function ImpulseRail({ companyId }: { companyId: string }) {
     return all;
   }, [logs, wired]);
 
+  /** Held here (always mounted) so inspect survives ArchitectureMap mount timing. */
+  const [demoInspect, setDemoInspect] = useState<DemoArchInspect | null>(null);
+
   useEffect(() => {
     return demoListen((command) => {
       if (command.type === 'rail-tab') {
         setTab(command.tab);
+        return;
+      }
+      if (command.type === 'arch-inspect-edge') {
+        setTab('architecture');
+        setDemoInspect({ kind: 'edge', id: command.edgeId, at: Date.now() });
+        return;
+      }
+      if (command.type === 'arch-inspect-node') {
+        setTab('architecture');
+        setDemoInspect({ kind: 'node', id: command.nodeId, at: Date.now() });
         return;
       }
       if (command.type !== 'open-log-match') return;
@@ -490,7 +503,11 @@ export function ImpulseRail({ companyId }: { companyId: string }) {
 
       {tab === 'architecture' && (
         <div role="tabpanel" className="arch-panel">
-          <ArchitectureMap steps={steps} chromeHost={archChromeHost} />
+          <ArchitectureMap
+            steps={steps}
+            chromeHost={archChromeHost}
+            demoInspect={demoInspect}
+          />
         </div>
       )}
     </aside>
