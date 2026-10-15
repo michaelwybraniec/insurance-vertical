@@ -805,6 +805,7 @@ export default function App() {
           catalog={catalog}
           onHome={() => setView({ name: 'home' })}
           onEnrolView={() => setView({ name: 'enrol' })}
+          onCollapseEvidence={() => setEvidenceWidth(0)}
           onWidenEvidence={() => setEvidenceWidth(Number.POSITIVE_INFINITY)}
           onRefresh={refresh}
           onFlash={setFlash}

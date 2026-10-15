@@ -13,8 +13,8 @@ function DemoShell() {
       <div className="static-demo-banner" role="status">
         <strong>Static demo</strong>
         <span>
-          In-browser mock — no API, Postgres, or worker. Use <strong>Run guided tour</strong> at the
-          bottom for enrol → Architecture play → log details. Base <code>{base}</code>
+          In-browser mock — no API/DB. Use <strong>Start guided tour</strong> (center) — the app
+          walks enrol → architecture → logs. Base <code>{base}</code>
         </span>
       </div>
       <App />
