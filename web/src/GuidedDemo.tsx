@@ -26,32 +26,38 @@ type CursorState = {
 
 /**
  * Docs pages after Start (01) — the deck already opens on slide 1.
- * Short flash explainers while we flip quickly.
+ * Drive via docs-go bus (one flip each) — no DOM double-click.
  */
-const DOC_BEATS: Array<{ label: string; flash: string }> = [
+const DOC_BEATS: Array<{ pageId: string; label: string; flash: string }> = [
   {
+    pageId: 'guide-02',
     label: 'architecture',
-    flash: 'Docs 02 · Architecture — five zones from Cover to carrier / payroll',
+    flash: 'Docs 02 · Architecture',
   },
   {
+    pageId: 'guide-03',
     label: 'statuses',
-    flash: 'Docs 03 · Statuses — FSM honesty: never invent Active',
+    flash: 'Docs 03 · Statuses',
   },
   {
+    pageId: 'guide-04',
     label: 'guarantees',
-    flash: 'Docs 04 · Guarantees — idempotency, tenancy, outbox, ACL',
+    flash: 'Docs 04 · Guarantees',
   },
   {
+    pageId: 'guide-05',
     label: 'scope',
-    flash: 'Docs 05 · Scope — built for real vs seed vs out of preview',
+    flash: 'Docs 05 · Scope',
   },
   {
+    pageId: 'guide-06',
     label: 'edges',
-    flash: 'Docs 06 · Edges — double-click, wrong company, insurer down…',
+    flash: 'Docs 06 · Edges',
   },
   {
+    pageId: 'guide-07',
     label: 'in cover',
-    flash: 'Docs 07 · In Cover — what you can try next in the live UI',
+    flash: 'Docs 07 · In Cover',
   },
 ];
 
@@ -201,13 +207,18 @@ export function GuidedDemo({
     });
 
     try {
-      // —— Docs deck first (already on 01 Start — flip 02→07 quickly) ——
+      // —— Docs deck first (already on 01 Start — flip 02→07 once each) ——
       onCollapseEvidence();
       onFlash('Docs 01 · Start — flipping 02→07…');
       const docsNav = await waitForEl(() => queryButton('docs'), signal);
-      await clickEl(docsNav, signal, 'fast');
-      onDocs();
-      await pause(180, signal);
+      await moveCursorTo(docsNav, signal, 'fast');
+      setCursor((c) => ({ ...c, clicking: true }));
+      await pause(60, signal);
+      onDocs(); // single navigation — do not also .click() the nav button
+      await pause(70, signal);
+      setCursor((c) => ({ ...c, clicking: false }));
+      await waitForEl(() => document.querySelector('.guide-page-btn') as Element | null, signal);
+      await pause(200, signal);
 
       for (const beat of DOC_BEATS) {
         onFlash(beat.flash);
@@ -220,14 +231,24 @@ export function GuidedDemo({
             }) as HTMLElement | undefined) ?? null
           );
         }, signal);
-        await clickEl(pageBtn, signal, 'fast');
-        await pause(200, signal);
+        await moveCursorTo(pageBtn, signal, 'fast');
+        setCursor((c) => ({ ...c, clicking: true }));
+        await pause(50, signal);
+        demoDispatch({ type: 'docs-go', pageId: beat.pageId });
+        await pause(50, signal);
+        setCursor((c) => ({ ...c, clicking: false }));
+        await pause(180, signal);
       }
 
       // —— Cover: enrol ——
       onFlash('Switching to Cover — enrol someone…');
-      await clickEl(await waitForEl(() => queryButton('cover'), signal), signal);
-      onHome();
+      const coverNav = await waitForEl(() => queryButton('cover'), signal);
+      await moveCursorTo(coverNav, signal, 'fast');
+      setCursor((c) => ({ ...c, clicking: true }));
+      await pause(60, signal);
+      onHome(); // single navigation — do not also .click() Cover
+      await pause(70, signal);
+      setCursor((c) => ({ ...c, clicking: false }));
       onCollapseEvidence();
       await api.resetDemo(companyId);
       await onRefresh();
@@ -311,74 +332,7 @@ export function GuidedDemo({
 
       onFlash('Zoom in on the flow…');
       demoDispatch({ type: 'arch-zoom', factor: 1.45 });
-      await pause(650, signal);
-
-      // SVG nodes use d3-drag (not click) — ImpulseRail holds inspect intent so the
-      // details panel opens even if ArchitectureMap mounted a tick late.
-      onFlash('Inspect a hop — command edge (UI → API)…');
-      const edge = await waitForEl(
-        () => document.querySelector('.arch-edge[data-id="e-command"]') as Element | null,
-        signal,
-      );
-      await moveCursorTo(edge, signal);
-      setCursor((c) => ({ ...c, clicking: true }));
-      await pause(130, signal);
-      demoDispatch({ type: 'arch-inspect-edge', edgeId: 'e-command' });
-      await waitForEl(
-        () => document.querySelector('.arch-side[data-arch-inspect="edge:e-command"]') as Element | null,
-        signal,
-        40,
-      );
-      await pause(160, signal);
-      setCursor((c) => ({ ...c, clicking: false }));
-      await pause(1200, signal);
-
-      onFlash('Inspect a node — Insurance API…');
-      const node = await waitForEl(
-        () => document.querySelector('.arch-node[data-id="api"]') as Element | null,
-        signal,
-      );
-      await moveCursorTo(node, signal);
-      setCursor((c) => ({ ...c, clicking: true }));
-      await pause(130, signal);
-      demoDispatch({ type: 'arch-inspect-node', nodeId: 'api' });
-      await waitForEl(
-        () => document.querySelector('.arch-side[data-arch-inspect="node:api"]') as Element | null,
-        signal,
-        40,
-      );
-      await pause(160, signal);
-      setCursor((c) => ({ ...c, clicking: false }));
-      await pause(1100, signal);
-
-      onFlash('Open a log on that node…');
-      const nodeLog = await waitForEl(
-        () =>
-          (document.querySelector(
-            '.arch-node[data-id="api"] .arch-node-log-line, .arch-node.is-expanded .arch-node-log-line',
-          ) as Element | null) ??
-          (document.querySelector('.arch-node-log-line') as Element | null),
-        signal,
-        40,
-      ).catch(() => null);
-      if (nodeLog) {
-        await moveCursorTo(nodeLog, signal);
-        setCursor((c) => ({ ...c, clicking: true }));
-        await pause(130, signal);
-        demoDispatch({ type: 'arch-replay-log', nodeId: 'api' });
-        await pause(160, signal);
-        setCursor((c) => ({ ...c, clicking: false }));
-        await pause(1200, signal);
-      } else {
-        // Enrol already filled the story — replay even if the mini-log DOM lagged.
-        await moveCursorTo(node, signal);
-        setCursor((c) => ({ ...c, clicking: true }));
-        await pause(130, signal);
-        demoDispatch({ type: 'arch-replay-log', nodeId: 'api' });
-        await pause(160, signal);
-        setCursor((c) => ({ ...c, clicking: false }));
-        await pause(900, signal);
-      }
+      await pause(500, signal);
 
       const playBtn = await waitForEl(
         () => document.querySelector('.arch-player-btn[aria-label="Play"]') as HTMLElement | null,

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { demoListen } from './guided-demo-bus';
 import { Mermaid } from './Mermaid';
 
 /** Mermaid subgraph / node ids → architecture piece number. */
@@ -525,6 +526,7 @@ function GuaranteeIcon({ name }: { name: (typeof CRITICAL)[number]['icon'] }) {
 export function HowItWorks() {
   const rootRef = useRef<HTMLDivElement>(null);
   const [activeId, setActiveId] = useState<GuidePageId>(GUIDE_PAGES[0].id);
+  const goToRef = useRef<(id: GuidePageId) => void>(() => {});
 
   useEffect(() => {
     const root = rootRef.current;
@@ -565,8 +567,17 @@ export function HowItWorks() {
     setActiveId(id);
     const next =
       scroller.scrollTop + (el.getBoundingClientRect().top - scroller.getBoundingClientRect().top);
-    scroller.scrollTo({ top: Math.max(0, next), behavior: 'smooth' });
+    scroller.scrollTo({ top: Math.max(0, next), behavior: 'auto' });
   };
+  goToRef.current = goTo;
+
+  useEffect(() => {
+    return demoListen((command) => {
+      if (command.type !== 'docs-go') return;
+      if (!isGuidePageId(command.pageId)) return;
+      goToRef.current(command.pageId);
+    });
+  }, []);
 
   return (
     <div className="guide-deck" ref={rootRef}>

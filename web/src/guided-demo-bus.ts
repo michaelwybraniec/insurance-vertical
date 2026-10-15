@@ -10,6 +10,7 @@ export type DemoArchInspect =
 export type DemoCommand =
   | { type: 'rail-tab'; tab: 'evidence' | 'dev' | 'architecture' }
   | { type: 'open-log-match'; match: string }
+  | { type: 'docs-go'; pageId: string }
   | { type: 'arch-play'; rate?: number }
   | { type: 'arch-zoom'; factor?: number }
   | { type: 'arch-inspect-edge'; edgeId: string }
