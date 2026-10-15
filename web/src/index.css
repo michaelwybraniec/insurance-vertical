@@ -6180,17 +6180,43 @@ code {
 .guided-demo-root {
   pointer-events: none;
 }
+.guided-demo-start,
 .guided-demo-hero,
 .guided-demo-launch,
 .guided-demo-stop {
   pointer-events: auto;
 }
-.guided-demo-hero {
+.guided-demo-start {
   position: fixed;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+  inset: 0;
   z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+}
+.guided-demo-start-bg {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(120% 80% at 50% 18%, rgba(13, 115, 112, 0.28), transparent 55%),
+    radial-gradient(90% 70% at 12% 88%, rgba(20, 36, 31, 0.22), transparent 50%),
+    radial-gradient(80% 60% at 92% 72%, rgba(13, 115, 112, 0.16), transparent 48%),
+    linear-gradient(160deg, rgba(246, 250, 248, 0.92) 0%, rgba(232, 242, 238, 0.88) 45%, rgba(20, 36, 31, 0.55) 100%);
+  backdrop-filter: blur(10px) saturate(1.05);
+  -webkit-backdrop-filter: blur(10px) saturate(1.05);
+  animation: guided-demo-start-in 0.7s ease-out both;
+}
+@keyframes guided-demo-start-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.guided-demo-hero {
+  position: relative;
+  z-index: 1;
   width: min(34rem, calc(100vw - 2rem));
   display: flex;
   flex-direction: column;
@@ -6198,12 +6224,23 @@ code {
   gap: 0.85rem;
   padding: 1.75rem 1.85rem 1.5rem;
   border-radius: var(--radius, 1rem);
-  background: var(--glass-strong, rgba(255, 255, 255, 0.92));
-  box-shadow: var(--shadow-soft, 0 18px 48px rgba(20, 36, 31, 0.16));
+  background: var(--glass-strong, rgba(255, 255, 255, 0.94));
+  box-shadow: var(--shadow-soft, 0 18px 48px rgba(20, 36, 31, 0.18));
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   text-align: left;
   color: var(--ink);
+  animation: guided-demo-hero-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.12s both;
+}
+@keyframes guided-demo-hero-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 .guided-demo-hello {
   margin: 0;

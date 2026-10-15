@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, type CompanyCatalog, type CompanyId } from './api';
 import { demoDispatch, sleep } from './guided-demo-bus';
 
-const AUTO_START_SEC = 5;
+const AUTO_START_SEC = 3;
 
 type Props = {
   companyId: CompanyId;
@@ -511,20 +511,22 @@ export function GuidedDemo({
   return (
     <div className="guided-demo-root">
       {!running && (
-        <div className="guided-demo-hero">
-          <p className="guided-demo-hello">Hello</p>
-          <h2 className="guided-demo-hero-title">MutuelleFit guided tour</h2>
-          <p className="guided-demo-hero-lead">
-            A cursor will walk the product for you: flip the Docs slides, enrol an employee until
-            Covered, then play Architecture and open a few Logs — so you see enrol → wait → payslip
-            without guessing where to click.
-          </p>
-          <button type="button" className="btn guided-demo-launch" onClick={() => void run()}>
-            Start guided tour
-          </button>
-          <p className="guided-demo-auto" aria-live="polite">
-            Starts automatically in <strong>{countdown}s</strong>
-          </p>
+        <div className="guided-demo-start" aria-hidden={false}>
+          <div className="guided-demo-start-bg" aria-hidden />
+          <div className="guided-demo-hero">
+            <p className="guided-demo-hello">Hello</p>
+            <h2 className="guided-demo-hero-title">MutuelleFit guided tour</h2>
+            <p className="guided-demo-hero-lead">
+              A cursor will walk the product for you: Docs → enrol until Covered → Architecture play
+              → Cards — so you see enrol → wait → payslip without guessing where to click.
+            </p>
+            <button type="button" className="btn guided-demo-launch" onClick={() => void run()}>
+              Start guided tour
+            </button>
+            <p className="guided-demo-auto" aria-live="polite">
+              Starts automatically in <strong>{countdown}s</strong>
+            </p>
+          </div>
         </div>
       )}
 
