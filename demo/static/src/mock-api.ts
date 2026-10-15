@@ -183,7 +183,8 @@ function emptyStore(): Store {
 function resetStore(): void {
   for (const t of store.timers) window.clearTimeout(t);
   store = emptyStore();
-  pushLog('api', 'info', 'Static demo reset — catalog reloaded (no Postgres).', {});
+  // Matches live demo.reset — Architecture play filters this out of the story.
+  pushLog('api', 'info', 'demo.reset', { mode: 'static' });
   pushImpulse({
     companyId: 'company-a',
     title: 'Seed catalog loaded',
@@ -192,7 +193,7 @@ function resetStore(): void {
     why: 'Same seed shape as the live POC so the UI can run without Docker.',
     reality: 'seed',
     layer: 'catalog',
-    source: 'mock-api',
+    source: 'seed',
     enrolmentId: null,
     payload: { companies: Object.keys(COMPANIES), planId: PLAN.id },
   });
@@ -225,14 +226,41 @@ function err(status: number, message: string): Response {
   return json({ message }, status);
 }
 
+/** Append oldest→newest so Architecture play walks enrol → activate → payroll in order. */
 function pushLog(
   service: string,
   level: DevLogEntry['level'],
   msg: string,
   fields: Record<string, unknown>,
 ): void {
-  store.logs.unshift({ ts: nowIso(), level, service, msg, fields });
-  if (store.logs.length > 400) store.logs.length = 400;
+  store.logs.push({ ts: nowIso(), level, service, msg, fields });
+  if (store.logs.length > 400) store.logs.splice(0, store.logs.length - 400);
+}
+
+/** Same shape as Fastify onResponse — ArchitectureMap keys off msg:'http' + url/method. */
+function logHttp(
+  method: string,
+  url: string,
+  statusCode: number,
+  headers: Headers,
+): void {
+  const path = url.split('?')[0] ?? url;
+  if (
+    path === '/health' ||
+    path.endsWith('/impulses') ||
+    path.endsWith('/dev-logs')
+  ) {
+    return;
+  }
+  pushLog('api', statusCode >= 400 ? 'warn' : 'info', 'http', {
+    method,
+    url,
+    statusCode,
+    ms: 1,
+    companyId: headers.get('X-Company-Id'),
+    role: headers.get('X-Role'),
+    correlationId: headers.get('X-Correlation-Id'),
+  });
 }
 
 function pushAudit(
@@ -358,18 +386,25 @@ function activateEnrolment(enrolmentId: string, correlationId: string): void {
     sourceEventId: uid('evt'),
   });
 
-  pushLog(
-    'worker',
-    'info',
-    'PendingExternal → Active after mock InsurerGateway',
-    { enrolmentId, carrier: company.carrier, memberId, correlationId },
-  );
-  pushLog(
-    `${company.carrier}-stub`,
-    'info',
-    'createMember (mock ACL)',
-    { enrolmentId, memberId, correlationId },
-  );
+  // Worker + outbox + payroll log msgs must match live POC (design-log.ts / architecture play).
+  pushLog('worker', 'info', 'worker.tick', { activated: 1, published: 2 });
+  pushLog('worker', 'info', 'activate.ok', { enrolmentId, correlationId });
+  const enrolledId = uid('obx');
+  const premiumId = uid('obx');
+  pushLog('worker', 'info', 'outbox.published', {
+    eventType: 'EmployeeEnrolledInInsurance',
+    id: enrolledId,
+  });
+  pushLog('worker', 'info', 'outbox.published', {
+    eventType: 'PremiumInstructionIssued',
+    id: premiumId,
+  });
+  pushLog('worker', 'info', 'payroll.issued', {
+    eventId: premiumId,
+    enrolmentId,
+    companyId: e.companyId,
+  });
+
   pushAudit(e.companyId, 'activate', e.enrolmentId, correlationId, {
     insurerMemberId: memberId,
     carrier: company.carrier,
@@ -382,10 +417,11 @@ function activateEnrolment(enrolmentId: string, correlationId: string): void {
     why: 'Same legal transition as the live POC — cover is Active only after the gateway returns a member id.',
     reality: 'mock',
     layer: 'worker',
-    source: 'mock-worker',
+    source: company.carrier === 'axa' ? 'demo/last-axa-call.json' : 'demo/last-alan-call.json',
     enrolmentId: e.enrolmentId,
     correlationId,
     payload: {
+      eventType: 'EmployeeEnrolledInInsurance',
       insurerMemberId: memberId,
       employerShareCents,
       employeeShareCents,
@@ -399,10 +435,29 @@ function activateEnrolment(enrolmentId: string, correlationId: string): void {
     why: 'Payroll never reads the Enrolment row — instructions cross the boundary as cents.',
     reality: 'real',
     layer: 'outbox',
-    source: 'mock-outbox',
+    source: 'outbox',
     enrolmentId: e.enrolmentId,
     correlationId,
-    payload: { employerShareCents, employeeShareCents, periodFrom, periodTo },
+    payload: {
+      eventType: 'PremiumInstructionIssued',
+      employerShareCents,
+      employeeShareCents,
+      periodFrom,
+      periodTo,
+    },
+  });
+  pushImpulse({
+    companyId: e.companyId,
+    title: 'Payroll lines materialised',
+    description: 'Patronale + salariale cents stored for the payslip preview.',
+    technology: 'static mock · payroll observer',
+    why: 'Payroll observes the bus; it never writes Enrolment.',
+    reality: 'real',
+    layer: 'payroll',
+    source: 'payroll_lines',
+    enrolmentId: e.enrolmentId,
+    correlationId,
+    payload: { eventType: 'PremiumInstructionIssued', employerShareCents, employeeShareCents },
   });
 }
 
@@ -513,12 +568,6 @@ async function handle(
     store.enrolments.unshift(enrolment);
     if (idem) store.idempotency.set(idem, enrolmentId);
 
-    pushLog('api', 'info', 'Enrol accepted · PendingExternal', {
-      enrolmentId,
-      companyId,
-      employeeId,
-      correlationId: corr,
-    });
     pushAudit(companyId, 'enrol', enrolmentId, corr, {
       employeeId,
       planId: enrolment.planId,
@@ -533,10 +582,23 @@ async function handle(
       why: 'Pending honesty — HR must not see Covered until InsurerGateway confirms.',
       reality: 'real',
       layer: 'domain',
-      source: 'mock-api',
+      source: 'enrolments',
       enrolmentId,
       correlationId: corr,
       payload: { employeeId, planId: enrolment.planId, effectiveFrom },
+    });
+    pushImpulse({
+      companyId,
+      title: 'ActivateEnrolmentRequested',
+      description: 'Handoff row for the worker — not on the bus; PendingExternal is scanned later.',
+      technology: 'static mock · outbox handoff',
+      why: 'Same TX as Pending so a crash cannot lose the work.',
+      reality: 'real',
+      layer: 'outbox',
+      source: 'outbox',
+      enrolmentId,
+      correlationId: corr,
+      payload: { eventType: 'ActivateEnrolmentRequested' },
     });
 
     scheduleActivate(enrolmentId, corr);
@@ -576,7 +638,7 @@ async function handle(
       why: 'Dispense is a legal exemption, not a failed enrol.',
       reality: 'real',
       layer: 'domain',
-      source: 'mock-api',
+      source: 'enrolments',
       enrolmentId,
       correlationId: corr,
       payload: { reasonCode, employeeId },
@@ -610,7 +672,8 @@ async function handle(
 
   m = pathname.match(/^\/v1\/companies\/([^/]+)\/dev-logs$/);
   if (method === 'GET' && m) {
-    return json({ items: store.logs.slice(0, 400) });
+    // Chronological (oldest first) — same as reading demo/dev-log.jsonl.
+    return json({ items: store.logs.slice(-400) });
   }
 
   // GET enrolment
@@ -636,6 +699,22 @@ async function handle(
     e.effectiveTo = nowIso().slice(0, 10);
     if (hadPremium) stopPayroll(e.enrolmentId);
     pushAudit(e.companyId, 'cancel', e.enrolmentId, corr, {});
+    const cancelEvt = uid('obx');
+    pushLog('worker', 'info', 'outbox.published', {
+      eventType: 'EnrolmentCancelled',
+      id: cancelEvt,
+    });
+    if (hadPremium) {
+      const stopEvt = uid('obx');
+      pushLog('worker', 'info', 'outbox.published', {
+        eventType: 'PremiumInstructionStop',
+        id: stopEvt,
+      });
+      pushLog('worker', 'info', 'payroll.stop', {
+        eventId: stopEvt,
+        enrolmentId: e.enrolmentId,
+      });
+    }
     pushImpulse({
       companyId: e.companyId,
       title: 'Admin cancel · Ended',
@@ -644,10 +723,10 @@ async function handle(
       why: 'Cancel ends cover; stop is emitted only if a premium was already issued.',
       reality: 'real',
       layer: 'domain',
-      source: 'mock-api',
+      source: 'enrolments',
       enrolmentId: e.enrolmentId,
       correlationId: corr,
-      payload: { hadPremium },
+      payload: { hadPremium, eventType: 'EnrolmentCancelled' },
     });
     return json(viewEnrolment(e));
   }
@@ -693,12 +772,31 @@ async function handle(
         e.employeeId === employeeId &&
         (e.status === 'PendingExternal' || e.status === 'Active'),
     );
+    if (open.length === 0) {
+      pushLog('api', 'info', 'terminate.no_cover', { companyId, employeeId });
+    }
     for (const e of open) {
       const hadPremium = e.status === 'Active';
       e.status = 'Ended';
       e.effectiveTo = nowIso().slice(0, 10);
       if (hadPremium) stopPayroll(e.enrolmentId);
       pushAudit(companyId, 'terminate', e.enrolmentId, corr, { employeeId });
+      const cancelEvt = uid('obx');
+      pushLog('worker', 'info', 'outbox.published', {
+        eventType: 'EnrolmentCancelled',
+        id: cancelEvt,
+      });
+      if (hadPremium) {
+        const stopEvt = uid('obx');
+        pushLog('worker', 'info', 'outbox.published', {
+          eventType: 'PremiumInstructionStop',
+          id: stopEvt,
+        });
+        pushLog('worker', 'info', 'payroll.stop', {
+          eventId: stopEvt,
+          enrolmentId: e.enrolmentId,
+        });
+      }
       pushImpulse({
         companyId,
         title: 'EmployeeTerminated · Ended',
@@ -707,21 +805,21 @@ async function handle(
         why: 'Terminate wins — a leaver must not stay Active.',
         reality: 'real',
         layer: 'platform',
-        source: 'mock-platform',
+        source: 'enrolments',
         enrolmentId: e.enrolmentId,
         correlationId: corr,
-        payload: { employeeId, eventId: body.eventId },
+        payload: {
+          employeeId,
+          eventId: body.eventId,
+          eventType: 'EnrolmentCancelled',
+        },
       });
     }
-    pushLog('platform', 'info', 'EmployeeTerminated handled', { companyId, employeeId });
     return json({ handled: true, duplicate: false });
   }
 
   return err(404, `No mock route for ${method} ${pathname}`);
 }
-
-// Rewrite impulses GET properly by patching the buggy block — I'll fix in StrReplace after write.
-// Actually let me rewrite handle's impulses section cleanly in the file before finishing.
 
 export function installMockApi(): void {
   resetStore();
@@ -741,7 +839,9 @@ export function installMockApi(): void {
     if (pathname.startsWith('/v1/') || pathname === '/health') {
       const bodyText =
         req.method === 'GET' || req.method === 'HEAD' ? '' : await req.clone().text();
-      return handle(req.method, pathname, url.search, req.headers, bodyText);
+      const res = await handle(req.method, pathname, url.search, req.headers, bodyText);
+      logHttp(req.method, `${pathname}${url.search}`, res.status, req.headers);
+      return res;
     }
 
     return original(input, init);
